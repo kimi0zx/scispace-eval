@@ -65,7 +65,64 @@ runtime is LangGraph, reverse-proxied at `/langgraph` — the web bundle reads
 `/api/scispace-agent/threads/{id}/state` returns 404, which is why `probe`
 exists: guessing one surface from the other silently loses the message history.
 
-## Use
+## One command, end to end
+
+```bash
+export PYTHONPATH=src
+export SCISPACE_COOKIE='...'          # or put it in .env
+
+python -m scispace_eval verify <thread-id>
+```
+
+Thread id in, verification output out. Five stages, each cached on disk under
+`data/pipeline/<thread-id>/` so a rerun resumes rather than repeats:
+
+| Stage | Output |
+|---|---|
+| collect | `bundle.json` — thread state, artefact list, artefact contents |
+| extract | `report_clean.md`, `evidence.json`, `extraction_meta.json` |
+| claims | `claims.md` — agent 1, the claim ledger |
+| verify | `verdicts.md` — agent 2, one verdict per claim |
+| summarise | `summary.json` — rollup plus integrity checks |
+
+`--stop-after extract` or `--stop-after claims` to run part way. `--force` to ignore
+the cache. `--model` to override the model the agents run on.
+
+The two agents run through the Claude Code CLI in print mode, so there is no separate
+API key or SDK to configure — if `claude` works in your shell, the pipeline works.
+
+### Why two agents and not one
+
+The extractor sees **only the report**. The verifier sees the claims and the evidence,
+never the report. That split is not tidiness: an extractor that can see the evidence
+drifts toward claims it can already tell are provable, which understates the report's
+real exposure. Withholding evidence is what makes the denominator honest.
+
+### What the pipeline handles that a naive version does not
+
+- **Two report-writing pipelines.** `standard` builds criteria columns on one shared
+  table and writes the report into a tool argument. `verified` writes each section
+  through a sub-agent whose text never enters the message list, so the report has to be
+  recovered from the artefact store. The mode is detected from the tool census, not from
+  thread metadata, which is often absent.
+- **Citation markers are stripped.** The reports ship no bibliography, so `[7]` resolves
+  to nothing for a reader or a verifier. Left in, a marker makes a claim look attributed
+  and biases both the severity call and the reader's trust.
+- **Retrieval tables are excluded from the evidence set.** Each source query writes its
+  own table before consolidation, holding papers that never survived reranking. Including
+  them inflates the evidence with material the report could not have drawn on.
+- **Relevance cells are withheld from the verifier.** They are the pipeline's own
+  inclusion verdict, and letting the verifier see them means inheriting the filtering
+  decision it exists to audit. The scores are unreliable besides.
+- **Extracted data cells are kept but marked untrusted.** The report was written from
+  them, which is what makes stage attribution possible, but they are LLM summaries that
+  demonstrably drop context — so a `supported` verdict resting on one must be confirmed
+  against the source abstract.
+- **Self-verification is captured.** `verified`-mode runs report their own per-section
+  verification cycles and corrections, which is free signal on what the pipeline already
+  knew was wrong.
+
+## Lower-level commands
 
 ```bash
 export PYTHONPATH=src

@@ -12,6 +12,7 @@ from rich.table import Table
 from .. import config
 from ..http import AuthExpired
 from ..schema import SourceRecord
+from ..pipeline.run import pipeline
 from . import groundtruth, threads
 from .normalize import normalize
 
@@ -241,3 +242,72 @@ def stats() -> None:
         c["used_full_text"] for r in usable for c in r["criteria"] if c["derived"]
     )
     console.print(f"use_full_text       {dict(ft)}")
+
+
+@app.command()
+def verify(
+    thread_id: str = typer.Argument(..., help="SciSpace thread id to evaluate"),
+    model: str = typer.Option(None, help="Model override passed to the Claude CLI"),
+    force: bool = typer.Option(False, help="Ignore cached stages and rerun"),
+    stop_after: str = typer.Option(None, help="Stop early: 'extract' or 'claims'"),
+) -> None:
+    """Full pipeline: thread id in, verification output out.
+
+    Needs SCISPACE_COOKIE in the environment or in .env, and the `claude` CLI on PATH.
+    """
+    try:
+        result = pipeline(thread_id, model=model, force=force, stop_after=stop_after)
+    except Exception as exc:  # noqa: BLE001 - surface the cause, not a traceback
+        console.print(f"[red]{type(exc).__name__}[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if result.get("skipped"):
+        console.print(f"[yellow]skipped[/yellow] {result['skipped']}")
+        return
+    if "verdict_counts" not in result:
+        console.print(json.dumps(result, indent=2))
+        return
+
+    console.print(f"[bold]claims[/bold]   {result['claims']}")
+    console.print(f"[bold]verdicts[/bold] {result['verdicts']}")
+    console.print("")
+    t = Table("verdict", "n")
+    for k, n in (result["verdict_counts"] or {}).items():
+        t.add_row(str(k), str(n))
+    console.print(t)
+
+    t = Table("failure mode", "n")
+    for k, n in (result["failure_modes"] or {}).items():
+        if k and k != "none":
+            t.add_row(str(k), str(n))
+    if t.row_count:
+        console.print(t)
+
+    t = Table("severity", "supported", "unsupported", "insufficient")
+    for sev in sorted(result["by_severity"]):
+        row = result["by_severity"][sev]
+        t.add_row(
+            sev,
+            str(row.get("supported", 0)),
+            str(row.get("unsupported", 0)),
+            str(row.get("insufficient_evidence", 0)),
+        )
+    console.print(t)
+
+    if result["p0_p1_rate"] is not None:
+        console.print(
+            f"[bold]P0/P1 unsupported[/bold] {result['p0_p1_unsupported']}/"
+            f"{result['p0_p1_total']} = [bold]{result['p0_p1_rate']:.1%}[/bold]"
+        )
+
+    integ = result["integrity"]
+    for label, ids in (
+        ("quotes not found in evidence", integ["quotes_not_in_evidence"]),
+        ("supported but reason names a mismatch", integ["supported_but_reason_names_mismatch"]),
+    ):
+        if ids:
+            console.print(f"[red]integrity[/red] {label}: {', '.join(ids[:12])}")
+    if result["missing_verdicts"]:
+        console.print(f"[red]missing verdicts[/red] {', '.join(result['missing_verdicts'][:12])}")
+
+    console.print(f"\n-> {config.DATA_DIR / 'pipeline' / thread_id}")

@@ -7,7 +7,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(REPO_ROOT / ".env")
+# A real environment variable wins over .env, so CI and one-off shells can pass
+# the cookie without touching the file.
+load_dotenv(REPO_ROOT / ".env", override=False)
 
 DATA_DIR = Path(os.getenv("SCISPACE_EVAL_DATA_DIR", REPO_ROOT / "data"))
 RAW_DIR = DATA_DIR / "raw"
