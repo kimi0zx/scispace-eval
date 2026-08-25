@@ -38,8 +38,26 @@ GATE PASS   no P0 unfounded or miscited claims
 `--stop-after extract|claims` to run part way. `--force` to ignore the cache.
 `--model` to change the model.
 
-Output lands in `data/pipeline/<thread-id>/`: `claims.md`, `verdicts.md`,
-`summary.json`.
+### Output
+
+Everything lands in `data/pipeline/<thread-id>/`, one file per stage:
+
+```
+bundle.json            raw thread state and artefact contents
+report_clean.md        the report, citation markers stripped
+evidence.json          the evidence set, one record per source
+extraction_meta.json   mode, report size, source counts
+prompt_extractor.md    exactly what agent 1 was sent
+claims.md              agent 1 output
+prompt_verifier.md     exactly what agent 2 was sent
+verdicts.md            agent 2 output
+summary.json           rates, the gate, integrity checks
+```
+
+The two prompt files are kept because a verdict is only auditable against the evidence
+the verifier actually saw. A partial run shows which stage it stopped at from the files
+present, and output an agent wrote that cannot be parsed is renamed `.rejected` rather
+than cached, so a rerun retries instead of skipping it forever.
 
 ## How it works
 

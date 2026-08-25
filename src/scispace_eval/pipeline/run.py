@@ -100,6 +100,41 @@ def extract(thread_id: str, bundle: dict) -> report.Extraction:
     return ex
 
 
+def _accept(dest: Path, res: agent.AgentResult, what: str) -> list[dict]:
+    """Take the agent's output only if it can actually be consumed.
+
+    An agent can write a plausible-looking report whose fenced JSON block is
+    truncated or unclosed. Left in place that file caches as success and every
+    later run skips it, so a broken artefact is deleted rather than kept.
+    """
+    if not dest.exists():
+        raise agent.AgentError(f"{what} produced no output at {dest}: {res.text[:400]}")
+    try:
+        records = render.parse_json_block(dest)
+    except Exception as exc:  # noqa: BLE001 - the cause is in the message
+        dest.rename(dest.with_suffix(".md.rejected"))
+        raise agent.AgentError(
+            f"{what} output could not be parsed ({exc}); kept as "
+            f"{dest.with_suffix('.md.rejected').name} so a rerun retries"
+        ) from exc
+    if not records:
+        dest.rename(dest.with_suffix(".md.rejected"))
+        raise agent.AgentError(f"{what} returned an empty record set")
+    return records
+
+
+def _tidy(run_dir: Path) -> None:
+    """Remove scratch files an agent wrote while assembling its output."""
+    keep = {
+        "bundle.json", "report_clean.md", "evidence.json", "extraction_meta.json",
+        "prompt_extractor.md", "prompt_verifier.md", "claims.md", "verdicts.md",
+        "summary.json",
+    }
+    for f in run_dir.iterdir():
+        if f.is_file() and f.name not in keep and not f.name.endswith(".rejected"):
+            f.unlink()
+
+
 def run_extractor(thread_id: str, ex: report.Extraction, model: str | None, force: bool) -> list[dict]:
     d = _workdir(thread_id)
     dest = d / "claims.md"
@@ -109,9 +144,8 @@ def run_extractor(thread_id: str, ex: report.Extraction, model: str | None, forc
 
     prompt = render.extractor_prompt(ex, d / "prompt_extractor.md", dest)
     res = agent.run(prompt, model=model, cwd=d)
-    if not dest.exists():
-        raise agent.AgentError(f"extractor produced no output at {dest}: {res.text[:400]}")
-    claims = render.parse_json_block(dest)
+    claims = _accept(dest, res, "extractor")
+    _tidy(d)
     log.info("extracted %d claims (cost $%s)", len(claims), res.cost_usd)
     return claims
 
@@ -127,9 +161,8 @@ def run_verifier(
 
     prompt = render.verifier_prompt(claims, ex.papers, d / "prompt_verifier.md", dest)
     res = agent.run(prompt, model=model, cwd=d)
-    if not dest.exists():
-        raise agent.AgentError(f"verifier produced no output at {dest}: {res.text[:400]}")
-    verdicts = render.parse_json_block(dest)
+    verdicts = _accept(dest, res, "verifier")
+    _tidy(d)
     log.info("verified %d claims (cost $%s)", len(verdicts), res.cost_usd)
     return verdicts
 
