@@ -91,6 +91,28 @@ the cache. `--model` to override the model the agents run on.
 The two agents run through the Claude Code CLI in print mode, so there is no separate
 API key or SDK to configure — if `claude` works in your shell, the pipeline works.
 
+### Verdicts
+
+Five labels, one per claim:
+
+| Label | Meaning |
+|---|---|
+| `verified` | A source backs the claim |
+| `unfounded` | The claim appears nowhere in the evidence — fabrication |
+| `miscited` | The number is real and correctly copied, but the source measured something else |
+| `overstated` | The evidence points the same way but supports less than the claim says |
+| `unverifiable` | Nothing in the evidence speaks to it either way |
+
+`miscited` is the label that matters. A figure can match to the last digit and still be
+cited for the wrong outcome, population or model variant — which is how a report misleads
+while passing every check that only looks at whether the number appears somewhere. On the
+pilot run it was 17 of 22 failures, and an earlier version of this harness that had no such
+label scored all of them as passing.
+
+`unverifiable` is an evidence-access limit on our side, not a defect in the report, so it
+is reported separately and never counted toward the failure rate. `unfounded` requires a
+stated search: if the negative cannot be bounded, the answer is `unverifiable`.
+
 ### Why two agents and not one
 
 The extractor sees **only the report**. The verifier sees the claims and the evidence,

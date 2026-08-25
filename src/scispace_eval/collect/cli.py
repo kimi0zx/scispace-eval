@@ -276,29 +276,22 @@ def verify(
         t.add_row(str(k), str(n))
     console.print(t)
 
-    t = Table("failure mode", "n")
-    for k, n in (result["failure_modes"] or {}).items():
-        if k and k != "none":
-            t.add_row(str(k), str(n))
-    if t.row_count:
-        console.print(t)
 
-    t = Table("severity", "supported", "unsupported", "insufficient")
+    LABELS = ("verified", "unfounded", "miscited", "overstated", "unverifiable")
+    t = Table("severity", *LABELS)
     for sev in sorted(result["by_severity"]):
         row = result["by_severity"][sev]
-        t.add_row(
-            sev,
-            str(row.get("supported", 0)),
-            str(row.get("unsupported", 0)),
-            str(row.get("insufficient_evidence", 0)),
-        )
+        t.add_row(sev, *[str(row.get(k, 0)) for k in LABELS])
     console.print(t)
 
     if result["p0_p1_rate"] is not None:
         console.print(
-            f"[bold]P0/P1 unsupported[/bold] {result['p0_p1_unsupported']}/"
+            f"[bold]P0/P1 not verified[/bold] {result['p0_p1_failed']}/"
             f"{result['p0_p1_total']} = [bold]{result['p0_p1_rate']:.1%}[/bold]"
+            "  [dim](unverifiable excluded)[/dim]"
         )
+    if result["unexpected_labels"]:
+        console.print(f"[red]unexpected labels[/red] {', '.join(result['unexpected_labels'])}")
 
     integ = result["integrity"]
     for label, ids in (

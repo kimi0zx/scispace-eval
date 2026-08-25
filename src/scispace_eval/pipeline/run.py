@@ -157,7 +157,7 @@ def summarise(thread_id: str, claims: list[dict], verdicts: list[dict]) -> dict:
                 "not detection", "response to", "staging")
     inconsistent = [
         x["id"] for x in verdicts
-        if x.get("verdict") == "supported"
+        if x.get("verdict") == "verified"
         and any(t in (x.get("reason") or "").lower() for t in MISMATCH)
     ]
 
@@ -169,8 +169,11 @@ def summarise(thread_id: str, claims: list[dict], verdicts: list[dict]) -> dict:
         s = by_id.get(i, {}).get("severity", "?")
         sev.setdefault(s, collections.Counter())[x.get("verdict")] += 1
 
-    unsup = [i for i, x in v.items() if x.get("verdict") == "unsupported"]
-    critical = [i for i in unsup if by_id.get(i, {}).get("severity") in ("P0", "P1")]
+    LABELS = ("verified", "unfounded", "miscited", "overstated", "unverifiable")
+    # `unverifiable` is an evidence-access limit on our side, not a defect in the
+    # report, so it never counts toward the failure rate.
+    failed = [i for i, x in v.items() if x.get("verdict") in ("unfounded", "miscited", "overstated")]
+    critical = [i for i in failed if by_id.get(i, {}).get("severity") in ("P0", "P1")]
     critical_total = sum(1 for c in claims if c.get("severity") in ("P0", "P1"))
 
     summary = {
@@ -179,11 +182,13 @@ def summarise(thread_id: str, claims: list[dict], verdicts: list[dict]) -> dict:
         "verdicts": len(verdicts),
         "missing_verdicts": missing,
         "unexpected_verdicts": extra,
-        "verdict_counts": count("verdict", v),
-        "failure_modes": count("failure_mode", v),
+        "verdict_counts": {k: count("verdict", v).get(k, 0) for k in LABELS},
+        "unexpected_labels": sorted(
+            {str(x.get("verdict")) for x in verdicts} - set(LABELS)
+        ),
         "by_severity": {k: dict(c) for k, c in sev.items()},
-        "unsupported": sorted(unsup, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0),
-        "p0_p1_unsupported": len(critical),
+        "failed": sorted(failed, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0),
+        "p0_p1_failed": len(critical),
         "p0_p1_total": critical_total,
         "p0_p1_rate": round(len(critical) / critical_total, 4) if critical_total else None,
         "integrity": {

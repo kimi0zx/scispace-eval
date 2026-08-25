@@ -26,7 +26,7 @@ So for every claim carrying a figure or a result, you must establish **two** thi
 1. **Does the value match the source?**
 2. **Does the claim describe the same thing the source measured?**
 
-If the answer to (1) is yes and (2) is no, the verdict is `unsupported`. Not "supported with a caveat". The reader has been given a false impression, and that is the failure this evaluation exists to find.
+If the answer to (1) is yes and (2) is no, the verdict is `miscited`. Not "verified with a caveat". The reader has been given a false impression, and that is the failure this evaluation exists to find.
 
 ### The test to apply
 
@@ -62,16 +62,22 @@ Work through all six. Do them in this order — the first two catch the most.
 
 ## Verdicts
 
-- **`supported`** — a source states this, you can quote it, the value matches, and the claim describes what the source actually measured.
-- **`unsupported`** — the evidence contradicts the claim, or gives a materially different value, or the claim misdescribes what was measured, or its strength outruns what you found.
-- **`insufficient_evidence`** — nothing you found speaks to the claim, and nothing contradicts it. Common where a figure would live in a source's detailed results rather than its summary. **This is not a hallucination and must not be counted as one.**
+Every claim gets exactly one of five labels.
 
-### Failure mode, when `unsupported`
+- **`verified`** — a source backs the claim. You can quote it, the value matches, and the source measured the same thing the claim describes.
+- **`unfounded`** — the claim appears nowhere in the evidence. Nothing states it, and nothing close to it exists. This is fabrication.
+- **`miscited`** — the value or finding is real and correctly copied, but the source measured something else: a different outcome, population, condition, task, or variant of the system. **Expect this to be the most common failure.** A figure can match to the last digit and still be miscited, and that is the failure this evaluation exists to catch.
+- **`overstated`** — the evidence points the same way but supports less than the claim says. A single result stated as general, a hedged source presented as settled, a quantifier the underlying results do not bear out.
+- **`unverifiable`** — nothing in the evidence speaks to the claim, and nothing contradicts it. Common where a figure would live in a source's detailed results rather than its summary. **This is not a failure by the report. Never count it as one.**
 
-- **`fabricated`** — the value or finding appears nowhere in the evidence.
-- **`misattributed`** — the value is real but describes a different subject, outcome, population, condition or system variant than the claim says. **Expect this to be the most common failure mode.** Do not default to `overreach` when the real problem is that the figure measured something else.
-- **`distorted`** — right subject and right measure, wrong value.
-- **`overreach`** — the evidence points this way but is weaker than the claim states.
+Choosing between them:
+
+- Number wrong, subject right → `unfounded` if it appears nowhere, otherwise the value conflicts and it is `miscited` with `value_check: mismatch`.
+- Number right, subject wrong → `miscited`. Not `verified` with a caveat.
+- Everything right but the claim reaches further than the evidence → `overstated`.
+- You could not find evidence either way → `unverifiable`, never `unfounded`. Absence of evidence in this pack is not evidence of fabrication.
+
+The last one matters: `unfounded` is a strong accusation. Reserve it for claims where you searched and can say what you searched for. If you cannot bound the search, the answer is `unverifiable`.
 
 ## Absence of evidence
 
@@ -79,28 +85,27 @@ The evidence set is large. You cannot honestly claim to have read every source f
 
 So when a verdict rests on absence, **never assert that no source supports the claim.** Instead record, in `search_note`, what you actually looked for and what you found: the terms or concepts you scanned on, how many sources matched, and how many of those supported the claim.
 
-If you cannot bound the negative that way, the verdict is `insufficient_evidence`, not `unsupported`.
+If you cannot bound the negative that way, the verdict is `unverifiable`, not `unfounded`.
 
 An unfalsifiable "nothing supports this" is worse than an honest "I could not confirm this".
 
 ## Consistency requirement
 
-Your `reason` must agree with your `verdict`. If your reasoning identifies a mismatch — a different outcome, a different population, a different system variant — then the verdict cannot be `supported`. Naming a problem and passing the claim anyway is the single worst failure available to you.
+Your `reason` must agree with your `verdict`. If your reasoning identifies a mismatch — a different outcome, a different population, a different system variant — then the verdict cannot be `verified`. Naming a problem and passing the claim anyway is the single worst failure available to you.
 
-Before recording any `supported` verdict, re-read your own `reason` and confirm it contains no mismatch.
+Before recording any `verified` verdict, re-read your own `reason` and confirm it contains no mismatch.
 
 ## Fields
 
 For each claim:
 
 - **`id`** — the claim id.
-- **`verdict`** — `supported`, `unsupported`, or `insufficient_evidence`.
+- **`verdict`** — `verified`, `unfounded`, `miscited`, `overstated`, or `unverifiable`.
 - **`evidence_ids`** — the source ids you relied on.
 - **`quote`** — the exact text from the evidence you relied on, copied character for character. Mandatory. If you cannot quote it, you cannot claim it.
-- **`quote_field`** — `abstract` or `data_cell`. **A data cell is a summary produced by an automated extraction step and may have dropped the very context this check depends on. Whenever you rely on one, confirm the subject and configuration against the source's own abstract before recording `supported`.**
+- **`quote_field`** — `abstract` or `data_cell`. **A data cell is a summary produced by an automated extraction step and may have dropped the very context this check depends on. Whenever you rely on one, confirm the subject and configuration against the source's own abstract before recording `verified`.**
 - **`source_measured`** — what the source actually measured, in your words: outcome, population, task, and which system variant or condition. This is the field the whole evaluation turns on. Fill it for every claim carrying a figure or result.
-- **`claim_presents_as`** — what the claim presents that figure or result as. Where this differs from `source_measured`, the verdict is `unsupported` / `misattributed`.
-- **`failure_mode`** — `fabricated`, `misattributed`, `distorted`, `overreach`, or `none`.
+- **`claim_presents_as`** — what the claim presents that figure or result as. Where this differs from `source_measured`, the verdict is `miscited`.
 - **`value_check`** — `exact`, `rounded`, `mismatch`, or `not_applicable`.
 - **`reason`** — one sentence naming the precise match or mismatch.
 - **`search_note`** — what you scanned for and what matched, when the verdict rests on absence. `null` otherwise.
@@ -110,9 +115,9 @@ For each claim:
 Write a markdown file containing:
 
 1. **Header** — total claims verified.
-2. **Summary tables** — counts by `verdict`, by `failure_mode`, by claim `type`, and by claim `severity`. Then the headline figure: the unsupported rate among `P0` and `P1` claims.
-3. **Per-section table** — section, claims, supported, unsupported, insufficient.
-4. **`## Failures`** — every `unsupported` claim in full: what the source measured, what the claim presented it as, the quote, and the failure mode. Order by severity, `P0` first.
+2. **Summary tables** — counts by `verdict`, by claim `type`, and by claim `severity`. Then the headline figure: how many `P0` and `P1` claims are anything other than `verified`, split by label.
+3. **Per-section table** — section, claims, and a column per verdict label.
+4. **`## Failures`** — every claim that is not `verified` and not `unverifiable`, in full: its label, what the source measured, what the claim presented it as, and the quote. Order by severity, `P0` first.
 5. **`## Suspect sources`** — any source whose scope differs from the claims drawn on it, and every claim affected.
 6. **`## Full records`** — the complete JSON array, all fields, in a fenced ```json block.
 7. **`## Notes`** — the hardest calls and why, and any contradictions you found between sources or between a source's abstract and its data cells.
@@ -122,12 +127,13 @@ Write a markdown file containing:
 - [ ] Every claim id appears exactly once.
 - [ ] Every verdict has a quote copied character for character from the evidence.
 - [ ] `source_measured` and `claim_presents_as` are filled for every claim carrying a figure or result.
-- [ ] No `supported` verdict has a `reason` that names a mismatch.
-- [ ] Every `supported` verdict resting on a data cell was confirmed against the source abstract.
+- [ ] No `verified` verdict has a `reason` that names a mismatch.
+- [ ] Every `verified` verdict resting on a data cell was confirmed against the source abstract.
 - [ ] Every absence-based verdict has a `search_note` that bounds the negative.
 - [ ] Aggregates and maxima were not accepted as single-system results.
+- [ ] `unfounded` was used only where the search is stated; otherwise `unverifiable`.
 
-Report the verdict counts, the failure-mode breakdown, the unsupported rate among `P0` and `P1` claims, the ids of all `P0` failures, and any suspect sources you identified.
+Report the counts for each of the five labels, how many `P0` and `P1` claims are not `verified`, the ids of every `P0` claim that is not `verified`, and any suspect sources you identified.
 
 
 ---
