@@ -9,10 +9,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .. import config
-from ..http import AuthExpired
-from ..pipeline.run import pipeline
-from . import threads
+from . import config
+from .http import AuthExpired
+from .pipeline.run import pipeline
 
 app = typer.Typer(add_completion=False, help="Phase 0: evidence acquisition.")
 console = Console()
@@ -26,80 +25,6 @@ def _setup(verbose: bool = False) -> None:
         format="%(levelname)s %(name)s: %(message)s",
     )
     config.ensure_dirs()
-
-
-@app.command()
-def probe(thread_id: str) -> None:
-    """Confirm which candidate API paths work, using one known thread."""
-    try:
-        found = threads.probe(threads.client(), thread_id)
-    except AuthExpired as exc:
-        console.print(f"[red]auth rejected[/red] {exc}")
-        raise typer.Exit(1) from exc
-    for name, path in found.items():
-        mark = "[green]ok[/green]" if path else "[red]none of the candidates[/red]"
-        console.print(f"{name:10} {mark}  {path or ''}")
-
-
-@app.command("list")
-def list_cmd(limit: int = 100, page_size: int = 20) -> None:
-    """List available threads."""
-    c = threads.client()
-    rows = []
-    for item in threads.list_threads(c, page_size=page_size):
-        rows.append(item)
-        if len(rows) >= limit:
-            break
-    out = config.RAW_DIR / "threads_index.json"
-    out.write_text(json.dumps(rows, indent=2))
-
-    t = Table("thread_id", "title", "created")
-    for r in rows[:40]:
-        t.add_row(
-            (threads.thread_id_of(r) or "?")[:36],
-            str(r.get("title") or r.get("name") or "")[:60],
-            str(r.get("created_at") or r.get("updated_at") or "")[:19],
-        )
-    console.print(t)
-    console.print(f"{len(rows)} threads -> {out}")
-
-
-@app.command()
-def fetch(
-    thread_id: list[str] = typer.Argument(None),
-    from_index: bool = typer.Option(False, help="Fetch every thread in threads_index.json"),
-    force: bool = False,
-) -> None:
-    """Fetch raw state and artefacts for one or more threads."""
-    ids = list(thread_id or [])
-    if from_index:
-        idx = config.RAW_DIR / "threads_index.json"
-        if not idx.exists():
-            console.print("[red]no threads_index.json[/red] - run `list` first")
-            raise typer.Exit(1)
-        ids += [
-            tid
-            for tid in (threads.thread_id_of(r) for r in json.loads(idx.read_text()))
-            if tid
-        ]
-    if not ids:
-        console.print("[red]nothing to fetch[/red]")
-        raise typer.Exit(1)
-
-    c = threads.client()
-    for tid in dict.fromkeys(ids):
-        try:
-            threads.fetch_raw(c, tid, force=force)
-            console.print(f"[green]fetched[/green] {tid}")
-        except AuthExpired as exc:
-            console.print(f"[red]auth rejected[/red] {exc}")
-            raise typer.Exit(1) from exc
-        except Exception as exc:  # noqa: BLE001 - one bad thread must not kill the batch
-            console.print(f"[yellow]skipped[/yellow] {tid}: {exc}")
-
-
-if __name__ == "__main__":
-    app()
 
 
 @app.command()

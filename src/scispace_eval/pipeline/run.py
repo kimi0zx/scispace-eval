@@ -21,7 +21,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .. import config
-from ..collect import threads
+from .. import endpoints
 from ..http import Client
 from . import agent, render, report
 from .score import score
@@ -44,11 +44,9 @@ def collect(thread_id: str, force: bool = False) -> dict:
 
     c = Client(headers=config.credentials().headers(), min_interval=0.2)
     bundle: dict = {"thread_id": thread_id}
-    bundle["thread"] = c.get_json(f"{config.API_BASE}/threads/{thread_id}", allow_404=True)
-    bundle["state"] = c.get_json(
-        f"{config.LANGGRAPH_BASE}/threads/{thread_id}/state", allow_404=True
-    )
-    arts = c.get_json(f"{config.API_BASE}/threads/{thread_id}/artifacts", allow_404=True) or {}
+    bundle["thread"] = c.get_json(endpoints.THREAD.format(tid=thread_id), allow_404=True)
+    bundle["state"] = c.get_json(endpoints.STATE.format(tid=thread_id), allow_404=True)
+    arts = c.get_json(endpoints.ARTIFACTS.format(tid=thread_id), allow_404=True) or {}
     bundle["artifacts"] = arts
 
     files: dict[str, dict] = {}
