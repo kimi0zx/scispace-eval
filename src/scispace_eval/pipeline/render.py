@@ -19,7 +19,9 @@ def render_evidence(papers: list[SourcePaper]) -> str:
     w = out.append
     w(f"{len(papers)} sources. Ids `P1`–`P{len(papers)}`.")
     w("")
-    w("Sources with no abstract carry metadata only and are unusable as evidence.")
+    w("Each source carries its abstract and, where the full-text search returned one, a")
+    w("passage of body text with the sections it came from. A source with neither is")
+    w("metadata only and unusable as evidence.")
     w("")
     for p in papers:
         w(f"## {p.paper_id} — {p.title or '(no title)'}")
@@ -40,6 +42,12 @@ def render_evidence(papers: list[SourcePaper]) -> str:
         w("")
         w(_blockquote(p.abstract) if p.abstract else "> _no abstract available_")
         w("")
+        if p.passage:
+            where = f" — from {', '.join(p.passage_sections)}" if p.passage_sections else ""
+            w(f"**Retrieved passage{where}**")
+            w("")
+            w(_blockquote(p.passage))
+            w("")
         for name, val in p.criteria_cells.items():
             w(f"**Extracted data cell — {name}**")
             w("")

@@ -96,8 +96,8 @@ failure.
   checked as a literal substring. A paraphrase is void.
 - **Restatements collapse.** A figure repeated in four sections is one assertion. When
   collapsing, the failing instance wins so dedup can't hide an error.
-- **Extracted cells aren't evidence.** They're LLM summaries of full text we never see. A
-  failure resting only on sources with no abstract is downgraded to `unverifiable`.
+- **Extracted cells aren't evidence.** They're LLM summaries of text we never see. A failure
+  resting only on sources that carry no text of their own is downgraded to `unverifiable`.
 
 ## Layout
 

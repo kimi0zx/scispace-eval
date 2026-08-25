@@ -39,6 +39,7 @@ HEDGES = (
 )
 
 NO_ABSTRACT = "_no abstract available_"
+PASSAGE = "**Retrieved passage"
 
 
 @dataclass
@@ -94,21 +95,22 @@ class Score:
         }
 
 
-def sources_without_abstract(evidence_pack: str) -> set[str]:
-    """Source ids whose only text in the pack is the pipeline's own extracted cells.
+def unauditable_sources(evidence_pack: str) -> set[str]:
+    """Source ids offering no text of their own, only the pipeline's extracted cells.
 
     A verdict resting solely on these cannot be confirmed: the cells are LLM
     summaries of full text the harness never sees, so judging a claim against them
-    means grading the pipeline against its own output.
+    means grading the pipeline against its own output. A source with an abstract or
+    a retrieved passage is auditable and is not listed here.
     """
     import re
 
     out: set[str] = set()
     for m in re.finditer(r"\n## (P\d+) ", evidence_pack):
         nxt = re.search(r"\n## P\d+ ", evidence_pack[m.end():])
-        block = evidence_pack[m.start(): m.end() + (nxt.start() if nxt else 4000)]
+        block = evidence_pack[m.start(): m.end() + (nxt.start() if nxt else 6000)]
         head = block.split("**Extracted data cell", 1)[0]
-        if NO_ABSTRACT in head:
+        if NO_ABSTRACT in head and PASSAGE not in head:
             out.add(m.group(1))
     return out
 
@@ -133,13 +135,13 @@ def score(
     by_id = {c["id"]: c for c in claims}
     v = {x["id"]: dict(x) for x in verdicts}
 
-    unauditable = sources_without_abstract(evidence_pack)
+    unauditable = unauditable_sources(evidence_pack)
 
     integrity: dict[str, list[str]] = {
         "quote_not_in_evidence": [],
         "unexpected_label": [],
         "reason_contradicts_verdict": [],
-        "downgraded_no_abstract": [],
+        "downgraded_unauditable_source": [],
         "missing_verdict": sorted(set(by_id) - set(v)),
         "verdict_without_claim": sorted(set(v) - set(by_id)),
     }
@@ -158,12 +160,12 @@ def score(
         if label in FAILING and any(h in reason for h in HEDGES):
             integrity["reason_contradicts_verdict"].append(cid)
 
-        # A failure asserted only against sources with no abstract rests on the
-        # pipeline's own summary. That is not evidence of a defect, so downgrade
-        # rather than count it.
+        # A failure asserted only against sources that carry no text of their own
+        # rests on the pipeline's own summary. That is not evidence of a defect,
+        # so downgrade rather than count it.
         ids = x.get("evidence_ids") or []
         if label in FAILING and ids and all(e in unauditable for e in ids):
-            integrity["downgraded_no_abstract"].append(cid)
+            integrity["downgraded_unauditable_source"].append(cid)
             x["verdict"] = label = "unverifiable"
 
         # A verdict is countable only if it reached a determination and can be

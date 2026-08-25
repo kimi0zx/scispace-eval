@@ -75,7 +75,7 @@ def verify(
 
     for label, ids in result["integrity"].items():
         if ids:
-            tone = "yellow" if label == "downgraded_no_abstract" else "red"
+            tone = "yellow" if label == "downgraded_unauditable_source" else "red"
             console.print(f"[{tone}]{label}[/{tone}] {', '.join(ids[:10])}")
 
     console.print(f"\n[dim]{config.PIPELINE_DIR / thread_id}[/dim]")

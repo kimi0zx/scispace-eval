@@ -34,6 +34,11 @@ class SourcePaper:
     publication_type: str | None = None
     authors: list[str] = field(default_factory=list)
     abstract: str | None = None
+    # Body text the full-text search matched, with the sections it came from.
+    # Not the whole paper, but usually the passage carrying the figures a query
+    # asked about, which the abstract often omits.
+    passage: str | None = None
+    passage_sections: list[str] = field(default_factory=list)
     is_oa: bool | None = None
     fulltext_url: str | None = None
     pmc_id: str | None = None
@@ -161,6 +166,34 @@ def _label(path: str) -> str:
     return stem.removesuffix("_relevant")
 
 
+def _passages(files: dict[str, dict]) -> dict[str, tuple[str, list[str]]]:
+    """Body text keyed by DOI, harvested from the full-text search results.
+
+    These tables are excluded from the evidence spine because they predate
+    consolidation and hold papers the report never saw. The passages on them are
+    still the only body text available anywhere in a run, so they are lifted out
+    and attached to whichever papers did survive.
+    """
+    out: dict[str, tuple[str, list[str]]] = {}
+    for path, f in sorted(files.items()):
+        if not path.endswith(".papertable") or f.get("status") != 200:
+            continue
+        try:
+            table = json.loads(f["text"])
+        except Exception:  # noqa: BLE001
+            continue
+        for row in table.get("data") or []:
+            p = _paper_of(row)
+            text = p.get("text")
+            key = (p.get("doi") or p.get("unique_id") or p.get("title") or "")[:200].lower()
+            if not key or not isinstance(text, str) or not text.strip():
+                continue
+            # Keep the longest passage seen for a paper.
+            if key not in out or len(text) > len(out[key][0]):
+                out[key] = (text.strip(), [s for s in (p.get("section_names") or []) if s])
+    return out
+
+
 def collect_evidence(files: dict[str, dict]) -> list[SourcePaper]:
     """Union every paper table into one deduplicated evidence set.
 
@@ -169,6 +202,7 @@ def collect_evidence(files: dict[str, dict]) -> list[SourcePaper]:
     and the disagreement stays visible.
     """
     tables = _papertables(files)
+    passages = _passages(files)
     # Prefer the widest table as the spine, then layer section cells on top.
     tables.sort(key=lambda t: len(t[1].get("data") or []), reverse=True)
 
@@ -202,6 +236,8 @@ def collect_evidence(files: dict[str, dict]) -> list[SourcePaper]:
             rec = pool[key]
             if not rec.abstract and p.get("abstract"):
                 rec.abstract = p["abstract"]
+            if not rec.passage and key in passages:
+                rec.passage, rec.passage_sections = passages[key]
             for name, val in _cells(row, columns).items():
                 rec.criteria_cells.setdefault(f"{section} :: {name}", val)
 
