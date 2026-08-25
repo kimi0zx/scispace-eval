@@ -40,7 +40,9 @@ def run(
     prompt_file: Path,
     *,
     model: str | None = None,
-    allowed_tools: str = "Read,Write",
+    # Bash is included because agents legitimately choose to assemble large JSON
+    # outputs with a throwaway script; without it they stall waiting for approval.
+    allowed_tools: str = "Read,Write,Bash",
     timeout: int = 5400,
     cwd: Path | None = None,
 ) -> AgentResult:

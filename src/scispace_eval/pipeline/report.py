@@ -213,6 +213,54 @@ def collect_evidence(files: dict[str, dict]) -> list[SourcePaper]:
     return papers
 
 
+# Files that live alongside the report but are not the report.
+_NOT_THE_REPORT = ("report_plan", "report_summary", "plan.md", "summary.md", "criteria")
+
+
+def _is_section_file(path: str) -> bool:
+    stem = path.rsplit("/", 1)[-1]
+    return "/sections/" in path or stem.startswith("section_") or stem.startswith("section-")
+
+
+def _report_from_artifacts(files: dict[str, dict]) -> tuple[str | None, str | None]:
+    """Find the generated report among the artefacts.
+
+    Filenames are not stable across runs: a report may be `final_report.md` or be
+    named after the query topic. So candidates are ranked rather than looked up,
+    and the plan and summary files are excluded explicitly because both sit next to
+    the report and the plan in particular is large enough to be mistaken for it.
+    """
+    md = {
+        p: f["text"]
+        for p, f in files.items()
+        if p.endswith(".md") and f.get("status") == 200 and (f.get("text") or "").strip()
+    }
+    if not md:
+        return None, None
+
+    def usable(p: str) -> bool:
+        stem = p.rsplit("/", 1)[-1].lower()
+        return not any(bad in stem for bad in _NOT_THE_REPORT) and not _is_section_file(p)
+
+    named = {p: t for p, t in md.items() if usable(p) and "report" in p.rsplit("/", 1)[-1].lower()}
+    if named:
+        best = max(named, key=lambda p: len(named[p]))
+        return named[best], None
+
+    sections = sorted(p for p in md if _is_section_file(p))
+    if sections:
+        return (
+            "\n\n".join(md[p] for p in sections),
+            f"report reassembled from {len(sections)} section files",
+        )
+
+    other = {p: t for p, t in md.items() if usable(p)}
+    if other:
+        best = max(other, key=lambda p: len(other[p]))
+        return other[best], f"report taken from {best.rsplit('/', 1)[-1]} (no file named *report*)"
+    return None, None
+
+
 def extract(bundle: dict) -> Extraction:
     state = bundle.get("state") or {}
     messages = ((state.get("values") or {}).get("messages")) or []
@@ -222,21 +270,13 @@ def extract(bundle: dict) -> Extraction:
 
     report: str | None = None
     if mode == "verified":
-        # The assembled report is an artefact; sections are written to files the
-        # message list never carries.
-        for path in ("/home/sandbox/final_report.md", "/home/sandbox/report.md"):
-            f = files.get(path)
-            if f and f.get("status") == 200:
-                report = f["text"]
-                break
-        if report is None:
-            sections = sorted(
-                p for p, f in files.items()
-                if "/sections/" in p and p.endswith(".md") and f.get("status") == 200
-            )
-            if sections:
-                report = "\n\n".join(files[p]["text"] for p in sections)
-                notes.append(f"report reassembled from {len(sections)} section files")
+        # The assembled report is an artefact; section text is written to files the
+        # message list never carries. Neither the report filename nor the section
+        # layout is fixed -- runs name the report after their topic, and sections
+        # appear either under a sections/ directory or as flat section_NN_* files.
+        report, note = _report_from_artifacts(files)
+        if note:
+            notes.append(note)
     else:
         # Standard mode writes the report as a tool argument. Take the largest
         # write: earlier ones are the plan and intermediate drafts.
@@ -250,10 +290,9 @@ def extract(bundle: dict) -> Extraction:
                     best = body
         report = best or None
         if report is None:
-            for path in ("/home/sandbox/final_report.md",):
-                f = files.get(path)
-                if f and f.get("status") == 200:
-                    report = f["text"]
+            report, note = _report_from_artifacts(files)
+            if note:
+                notes.append(note)
 
     verifications = [
         json.loads(_text(m.get("content")))

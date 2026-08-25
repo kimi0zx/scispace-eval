@@ -1,53 +1,153 @@
 # scispace-eval
 
-Hallucination evaluation harness for SciSpace Agent's Report Writing output.
-
-Phase 0 (evidence acquisition) is implemented. The claim extractor, verifier and
-metrics rollup build on the canonical schema this phase produces.
-
-## Why acquisition is its own phase
-
-Report Writing is not a single generation step. Every figure in a report has
-travelled two hops:
-
-```
-paper abstract  ──hop 1──►  table cell  ──hop 2──►  report sentence
-                (extraction)             (generation)
-```
-
-A wrong number can be introduced at either hop, and the fixes are owned by
-different components. Telling them apart requires the **enriched paper table** —
-the intermediate representation the agent actually wrote from. An output-only
-evaluation does not have it, and so can produce a hallucination rate but cannot
-attribute it. Everything downstream depends on capturing that artefact.
-
-## Pipeline stages recovered from a run
-
-Stage boundaries are inferred from the tool-call sequence, since the pipeline is
-observable but not instrumentable:
-
-| Stage | Tool | Artefact |
-|---|---|---|
-| 1 Retrieval | six parallel `*_search` calls | per-source paper tables |
-| 2 Consolidation | `rerank_and_combine_paper_tables` | one ranked table |
-| 3 Criteria | `add_column_to_search_results_using_llm` | criterion name + extraction prompt |
-| 4 Extraction | same call, per cell | table cells |
-| 5 Generation | `filesystem_file_write` | the report |
-
-`read_paper_table` is called twice, bare and then with `columns`. Only the
-second carries cell data, so the parser takes the last such call.
-
-## Install
+A hallucination eval for SciSpace Agent's Report Writing output. Takes a thread ID,
+returns a scored verdict on every checkable claim the report makes.
 
 ```bash
 uv venv && uv pip install -r requirements.txt
-cp .env.example .env    # then fill in SCISPACE_COOKIE
+cp .env.example .env          # then fill in SCISPACE_COOKIE
+export PYTHONPATH=src
+
+python -m scispace_eval verify <thread-id>
 ```
 
-Auth: the API needs a logged-in session. In a browser with SciSpace open,
-DevTools > Network > any `/api/scispace-agent/*` request > Copy as cURL, and put
-the `Cookie` header value into `SCISPACE_COOKIE`. Unauthenticated calls return
-`401 user_not_in_request`.
+```
+202 claims -> 156 distinct assertions
+
+        total  verified  blocking  quality  unverifiable
+ P0        18        10         0        5             3
+ P1        67        61         0        2             4
+ P2        71        62         0        1             8
+ all      156       133         0        8            15
+
+GATE PASS   no P0 unfounded or miscited claims
+```
+
+Auth: the API needs a logged-in session. In a browser with SciSpace open, DevTools →
+Network → any `/api/scispace-agent/*` request → Copy as cURL, and put the `Cookie`
+header value into `SCISPACE_COOKIE`. Unauthenticated calls return
+`401 user_not_in_request`. A real environment variable overrides `.env`.
+
+The two agents run through the Claude Code CLI in print mode, so there is no separate
+API key: if `claude` works in your shell, this works.
+
+## What it does
+
+Five stages, each cached under `data/pipeline/<thread-id>/` so a rerun resumes rather
+than repeats.
+
+| Stage | Output | What it is |
+|---|---|---|
+| collect | `bundle.json` | thread state, artefact list, artefact contents |
+| extract | `report_clean.md`, `evidence.json` | the report and the evidence set, recovered from the run |
+| claims | `claims.md` | agent 1 — every checkable claim, with severity |
+| verify | `verdicts.md` | agent 2 — one verdict per claim, each with a quote |
+| score | `summary.json` | rates, the gate, and integrity checks |
+
+`--stop-after extract` or `--stop-after claims` to run part way, `--force` to ignore the
+cache, `--model` to change the model the agents run on.
+
+## Why two agents
+
+The **extractor** sees only the report. The **verifier** sees only the claims and the
+evidence.
+
+That split is not tidiness. A single agent reading the report and the sources together
+quietly skips claims it can already tell are unprovable, which shrinks the denominator
+rather than raising the failure count — the result looks better while measuring less.
+Splitting the work means the extractor's only job is completeness and the verifier's
+only job is judgement, and neither can trade one against the other.
+
+The same logic runs the other way: a verifier that could see the surrounding narrative
+would start assessing whether a claim fits the argument instead of whether the evidence
+supports it.
+
+## Verdicts
+
+| Label | Meaning |
+|---|---|
+| `verified` | A source backs the claim: the value matches and the source measured the same thing |
+| `unfounded` | The claim as stated appears nowhere, including a figure assembled from parts of different sources |
+| `miscited` | The number is real and correctly copied, but the source measured something else |
+| `overstated` | The evidence points the same way but supports less than the claim says |
+| `unverifiable` | Nothing in the evidence speaks to it either way |
+
+`miscited` is the label that carries the most weight. A figure can match to the last
+digit and still be cited for the wrong outcome, population or model variant, so a
+harness without this distinction records the entire class as passing.
+
+## Severity, and the gate
+
+Severity is assigned from consequence, not from where a claim sits in the document.
+
+- **P0** — a reader who acts on this acts wrongly. Headline findings, summary figures, the thesis.
+- **P1** — one sub-area is wrong, the report's conclusion still stands.
+- **P2** — nothing a reader concludes changes.
+
+The gate blocks on **P0 `unfounded` or `miscited`**: the report states something
+factually wrong where a reader acts on it.
+
+`overstated` is tracked, never gated. Over-generalisation is endemic to summarisation,
+so gating on it would block every release; it belongs in a quality metric rather than a
+correctness one. `unverifiable` is an evidence-access limit on our side, not a product
+defect, and is never counted as a failure — pooling it either way would misstate both
+the product's quality and the evaluation's own confidence.
+
+## What the code refuses to trust
+
+Most of the design exists because an earlier version of this harness got these wrong.
+
+**A verdict without a receipt is void.** Every verdict must quote the evidence character
+for character, and `score.py` checks that the quote is a literal span of the pack. A
+paraphrased quote cannot be audited, so counting it asserts something unfalsifiable.
+
+**Restatements collapse.** Reports state a headline figure in the introduction, again in
+the body, again in the conclusion. Each instance is a real claim, but they are one
+assertion, and counting four turns one error into four. Rates are per distinct assertion,
+and when collapsing a group the scorer keeps the *failing* instance so deduplication can
+never hide an error behind a pass.
+
+**Extracted cells are not evidence.** The paper table's criteria cells are LLM summaries
+of full text this harness never sees, and they demonstrably drop context — on one run an
+imaging cell omitted the genomics and clinical inputs that the multimodal cell listed for
+the same paper. A verdict resting on a cell must be confirmed against the source
+abstract, and a failure asserted only against sources that have no abstract is downgraded
+to `unverifiable` rather than counted.
+
+**A reason may not contradict its verdict.** An earlier version wrote that a source
+measured recurrence and then marked the detection claim supported. The scorer flags any
+failure verdict whose reason contains "cannot be confirmed", "no abstract" and similar,
+because those phrases belong only to `unverifiable`.
+
+**Relevance scores never reach the verifier.** They are the pipeline's own inclusion
+verdict, so showing them means inheriting the filtering decision the eval exists to
+audit. On one run every relevance cell was stamped `0/100 "Not Relevant"` while its own
+reasoning said the paper strongly supported the section.
+
+## What the collector handles
+
+**Two report-writing pipelines.** `standard` builds criteria columns on one shared table
+and writes the report into a tool argument. `verified` writes each section through a
+sub-agent whose text never enters the message list, so the report has to be recovered
+from the artefact store. The mode is detected from the tool census rather than from thread
+metadata, which is often absent.
+
+**Report filenames are not stable.** A report may be `final_report.md` or named after the
+query topic, and sections may sit in a `sections/` directory or as flat `section_NN_*`
+files. Candidates are ranked rather than looked up, and the plan and summary files are
+excluded explicitly because both sit next to the report.
+
+**Retrieval tables are excluded from the evidence set.** Each source query writes its own
+table before consolidation, holding papers that never survived reranking. Including them
+would evaluate the report against material it could not have drawn on.
+
+**Citation markers are stripped from the report.** The reports ship no bibliography, so
+`[7]` resolves to nothing. Left in, a marker makes a claim look attributed and biases both
+the severity call and the reader's trust.
+
+**Self-verification is captured.** `verified`-mode runs report their own per-section
+verification cycles and corrections, including sections that exit at `max_threshold` —
+the verifier hit its cycle cap without converging and the section shipped anyway.
 
 ## Two API surfaces
 
@@ -57,208 +157,13 @@ Confirmed with `probe`. They are separate services and the split is not obvious:
 |---|---|
 | Thread list | `GET /api/scispace-agent/threads` |
 | Artefacts | `GET /api/scispace-agent/threads/{id}/artifacts` |
-| Run state (messages, tool calls) | `GET /langgraph/threads/{id}/state` |
+| Run state | `GET /langgraph/threads/{id}/state` |
 
-Run state is the artefact that matters, and it is not under `/api/`. The agent
-runtime is LangGraph, reverse-proxied at `/langgraph` — the web bundle reads
+Run state is the artefact that matters and it is not under `/api/`. The agent runtime is
+LangGraph, reverse-proxied at `/langgraph` — the web bundle reads
 `NEXT_PUBLIC_LANGGRAPH_API_URL` and falls back to `${origin}/langgraph`.
-`/api/scispace-agent/threads/{id}/state` returns 404, which is why `probe`
-exists: guessing one surface from the other silently loses the message history.
-
-## One command, end to end
-
-```bash
-export PYTHONPATH=src
-export SCISPACE_COOKIE='...'          # or put it in .env
-
-python -m scispace_eval verify <thread-id>
-```
-
-Thread id in, verification output out. Five stages, each cached on disk under
-`data/pipeline/<thread-id>/` so a rerun resumes rather than repeats:
-
-| Stage | Output |
-|---|---|
-| collect | `bundle.json` — thread state, artefact list, artefact contents |
-| extract | `report_clean.md`, `evidence.json`, `extraction_meta.json` |
-| claims | `claims.md` — agent 1, the claim ledger |
-| verify | `verdicts.md` — agent 2, one verdict per claim |
-| summarise | `summary.json` — rollup plus integrity checks |
-
-`--stop-after extract` or `--stop-after claims` to run part way. `--force` to ignore
-the cache. `--model` to override the model the agents run on.
-
-The two agents run through the Claude Code CLI in print mode, so there is no separate
-API key or SDK to configure — if `claude` works in your shell, the pipeline works.
-
-### Verdicts
-
-Five labels, one per claim:
-
-| Label | Meaning |
-|---|---|
-| `verified` | A source backs the claim |
-| `unfounded` | The claim appears nowhere in the evidence — fabrication |
-| `miscited` | The number is real and correctly copied, but the source measured something else |
-| `overstated` | The evidence points the same way but supports less than the claim says |
-| `unverifiable` | Nothing in the evidence speaks to it either way |
-
-`miscited` is the label that matters. A figure can match to the last digit and still be
-cited for the wrong outcome, population or model variant — which is how a report misleads
-while passing every check that only looks at whether the number appears somewhere. On the
-pilot run it was 17 of 22 failures, and an earlier version of this harness that had no such
-label scored all of them as passing.
-
-`unverifiable` is an evidence-access limit on our side, not a defect in the report, so it
-is reported separately and never counted toward the failure rate. `unfounded` requires a
-stated search: if the negative cannot be bounded, the answer is `unverifiable`.
-
-### Why two agents and not one
-
-The extractor sees **only the report**. The verifier sees the claims and the evidence,
-never the report. That split is not tidiness: an extractor that can see the evidence
-drifts toward claims it can already tell are provable, which understates the report's
-real exposure. Withholding evidence is what makes the denominator honest.
-
-### What the pipeline handles that a naive version does not
-
-- **Two report-writing pipelines.** `standard` builds criteria columns on one shared
-  table and writes the report into a tool argument. `verified` writes each section
-  through a sub-agent whose text never enters the message list, so the report has to be
-  recovered from the artefact store. The mode is detected from the tool census, not from
-  thread metadata, which is often absent.
-- **Citation markers are stripped.** The reports ship no bibliography, so `[7]` resolves
-  to nothing for a reader or a verifier. Left in, a marker makes a claim look attributed
-  and biases both the severity call and the reader's trust.
-- **Retrieval tables are excluded from the evidence set.** Each source query writes its
-  own table before consolidation, holding papers that never survived reranking. Including
-  them inflates the evidence with material the report could not have drawn on.
-- **Relevance cells are withheld from the verifier.** They are the pipeline's own
-  inclusion verdict, and letting the verifier see them means inheriting the filtering
-  decision it exists to audit. The scores are unreliable besides.
-- **Extracted data cells are kept but marked untrusted.** The report was written from
-  them, which is what makes stage attribution possible, but they are LLM summaries that
-  demonstrably drop context — so a `supported` verdict resting on one must be confirmed
-  against the source abstract.
-- **Self-verification is captured.** `verified`-mode runs report their own per-section
-  verification cycles and corrections, which is free signal on what the pipeline already
-  knew was wrong.
-
-## Lower-level commands
-
-```bash
-export PYTHONPATH=src
-
-# confirm which undocumented endpoint paths actually work, against a known thread
-python -m scispace_eval probe <thread-id>
-
-# enumerate runs -> data/raw/threads_index.json
-python -m scispace_eval list --limit 200
-
-# pull raw state + artefacts for every listed thread -> data/raw/<thread>.json
-python -m scispace_eval fetch --from-index
-
-# parse into canonical runs -> data/runs/<thread>.json
-python -m scispace_eval normalize
-
-# resolve cited DOIs against two registries, fetch abstracts -> data/out/sources.json
-python -m scispace_eval ground-truth
-
-# corpus report: what was collected, what was dropped and why
-python -m scispace_eval stats
-```
-
-Raw responses are always written before parsing. The parser will change as the
-eval grows; re-collecting is rate-limited and expensive.
-
-## Design decisions worth knowing
-
-**Ground truth comes from outside the pipeline under test.** If stage 4
-mis-extracts a value from an abstract and the eval re-reads that abstract
-through SciSpace's own retrieval layer, the error is invisible — the evaluation
-inherits the bug it is looking for. Sources are resolved via Crossref, OpenAlex
-and Semantic Scholar.
-
-**A citation is invalid only if both registries fail it.** On the pilot run, two
-DOIs resolve in OpenAlex but not Crossref. Crossref-only validation would report
-them as fabricated. Publishers register with different agencies; single-registry
-validation over-reports fabrication.
-
-**Existence checks and abstract fetching are separate passes.** Semantic Scholar
-is limited to roughly 1 req/s without a key. Coupling it to the existence check
-makes the whole batch run at S2 speed.
-
-**Runs are filtered on completeness, and drops are counted.** A report without
-its table, or a table without identifiers, cannot be attributed. It is excluded
-and reported, never silently included with partial evidence.
-
-**Built-in table columns are not criteria.** `Relevance` and `Abstract` ship
-with every table. Only agent-derived columns represent the comparison the user
-asked for, so the criteria-fidelity eval must not credit the built-ins.
-
-## Corpus
-
-132 threads collected. **92 usable runs**: 2,589 table rows, 1,659 unique cited
-DOIs, 4.7M characters of generated report.
-
-Of the 40 excluded:
-
-- **31 never called `write_report`.** Not report-writing runs. A corpus filter,
-  not a product failure — the two must not be pooled.
-- **9 attempted a report but produced no usable evidence chain.** Five wrote
-  20-30k characters with no paper table at all. Four wrote 8-13k characters from
-  a table carrying only the built-in `Relevance` and `Abstract` columns, with
-  zero derived criteria.
-
-Those last four matter for the eval design. With no criteria columns there is no
-extraction hop — the report is written straight from abstracts, so the two-hop
-attribution model does not apply and the risk profile is different. Roughly 4%
-of report runs take that path, and they need their own verifier configuration
-rather than being scored on a table that does not exist.
-
-### The retrieval funnel
-
-**8,966 papers retrieved across 92 runs; 2,589 rows actually read into a report
-— 28.9%.** Nearly all runs read exactly 30 rows regardless of how much the
-consolidation step ranked. This is a fixed page size, not a relevance cut-off,
-and it is upstream of every hallucination metric: a grounded report over the
-wrong 29% of the literature is still the wrong report. It is the strongest
-argument for the retrieval-recall and completeness evals being ranked first.
-
-### Criteria width
-
-Derived criteria per run range from 1 to 16, with a mode of 3 (46 of 92 runs).
-328 of 401 derived criteria ran with `use_full_text: true`; the remaining 73 did
-not set the flag at all.
-
-## Pilot run findings
-
-Thread `4e23468e`, query: AI-based early cancer detection, comparing performance
-across imaging, genomics and multimodal approaches using AUC, sensitivity and
-specificity.
-
-- 129 papers retrieved, top 30 read into the report.
-- **2 criteria columns derived** — *AI Methodology and Modality* and
-  *Performance Metrics* — for a query naming three metrics across three approach
-  types. All three metrics were collapsed into one free-text column, so the
-  comparison the user asked for was structurally discarded before extraction
-  began. Upstream of every hallucination check.
-- Both extraction prompts ran with `use_full_text: true`. The agent had more
-  evidence than this harness can independently obtain, which sets the ceiling on
-  external verifiability.
-- **29/29 DOIs resolve.** No fabricated citations in this run.
-- **2 of 29 are not peer reviewed**: one Zenodo upload, one Research Square
-  preprint. Legitimate records, but a material distinction for a research
-  audience that the report does not surface.
-- 28/29 abstracts obtained. The one gap is a Nature paper with no abstract in
-  any registry — a concrete driver of the unverifiable rate, not a product
-  failure.
-
-A first pass over this run reported one DOI as malformed and unresolvable. That
-was a parser bug in this harness truncating `10.21103/Article13(1)_RA1` at the
-parenthesis, not a SciSpace failure. It is the same false-positive class the
-dual-registry rule exists to prevent, and the reason `probe`, raw-response
-persistence and completeness accounting are in the design rather than bolted on.
+`/api/scispace-agent/threads/{id}/state` returns 404, which is why `probe` exists:
+guessing one surface from the other silently loses the entire message history.
 
 ## Layout
 
@@ -266,15 +171,33 @@ persistence and completeness accounting are in the design rather than bolted on.
 src/scispace_eval/
   config.py              credentials, paths, .env loading
   http.py                browser-shaped session, backoff on 429/5xx, disk cache
-  schema.py              canonical models: Run, PaperRow, Criterion, SourceRecord
   collect/
     threads.py           enumerate runs, probe endpoint paths, fetch raw
-    normalize.py         LangGraph state -> canonical Run
-    groundtruth.py       Crossref + OpenAlex + Semantic Scholar
-    cli.py               probe / list / fetch / normalize / ground-truth
+    cli.py               probe / list / fetch / verify
+  pipeline/
+    report.py            run artefacts -> the report and the evidence set
+    render.py            prompt assembly from templates
+    agent.py             runs a prompt through the Claude Code CLI
+    score.py             receipts, deduplication, the gate, integrity checks
+    run.py               the five stages
+    prompts/
+      extractor.md       agent 1
+      verifier.md        agent 2
 data/
-  raw/                   raw API responses, one file per thread
-  runs/                  canonical runs
-  out/                   sources.json and eval outputs
-  labels/                hand labels for judge calibration
+  raw/                   thread listings
+  pipeline/<thread-id>/  one directory per scored run
 ```
+
+## Limitations
+
+- **Abstracts, not full text.** The harness reads abstracts and the pipeline's extracted
+  cells; the agent's own extraction ran on full text, so it worked from evidence this
+  evaluation cannot reach. On one run only 49 of 351 sources were open access with
+  structured full text.
+- **No human-labelled ground truth.** This is a model checking a model. Judge TPR/TNR
+  against hand labels is the missing piece, and nothing else substitutes for it.
+- **Citation binding is untestable.** With no bibliography and no recoverable key mapping,
+  whether a claim cites the *right* paper cannot be checked.
+- **Small n.** Around eighteen distinct assertions at P0 in a single run, so one claim
+  moves the rate by several points. The counts carry the meaning; the percentages need
+  more runs behind them.

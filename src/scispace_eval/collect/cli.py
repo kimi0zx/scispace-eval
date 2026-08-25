@@ -11,10 +11,8 @@ from rich.table import Table
 
 from .. import config
 from ..http import AuthExpired
-from ..schema import SourceRecord
 from ..pipeline.run import pipeline
-from . import groundtruth, threads
-from .normalize import normalize
+from . import threads
 
 app = typer.Typer(add_completion=False, help="Phase 0: evidence acquisition.")
 console = Console()
@@ -100,148 +98,8 @@ def fetch(
             console.print(f"[yellow]skipped[/yellow] {tid}: {exc}")
 
 
-@app.command("normalize")
-def normalize_cmd(raw_file: list[Path] = typer.Argument(None)) -> None:
-    """Parse raw bundles into canonical runs. Unusable runs are reported, not dropped silently."""
-    files = list(raw_file or sorted(config.RAW_DIR.glob("*.json")))
-    files = [f for f in files if f.name != "threads_index.json"]
-    if not files:
-        console.print("[red]no raw bundles[/red] - run `fetch` first")
-        raise typer.Exit(1)
-
-    t = Table("thread", "papers", "dois", "criteria", "report", "usable", "why not")
-    usable = 0
-    for f in files:
-        bundle = json.loads(f.read_text())
-        state = bundle.get("state") if "state" in bundle else bundle
-        tid = bundle.get("thread_id") or f.stem
-        run = normalize(tid, state)
-        (config.RUNS_DIR / f"{tid}.json").write_text(run.model_dump_json(indent=2))
-        usable += run.completeness.usable
-        t.add_row(
-            tid[:12],
-            str(len(run.papers)),
-            str(run.completeness.rows_with_doi),
-            str(sum(1 for c in run.criteria if c.derived)),
-            f"{len(run.report_markdown or '')}c",
-            "yes" if run.completeness.usable else "no",
-            ", ".join(run.completeness.reasons),
-        )
-    console.print(t)
-    console.print(f"{usable}/{len(files)} usable -> {config.RUNS_DIR}")
-
-
-@app.command("ground-truth")
-def ground_truth(
-    run_file: list[Path] = typer.Argument(None),
-    abstracts: bool = typer.Option(True, help="Also fetch abstracts (slow, rate-limited)"),
-) -> None:
-    """Resolve every cited DOI against two registries and fetch abstracts."""
-    files = list(run_file or sorted(config.RUNS_DIR.glob("*.json")))
-    if not files:
-        console.print("[red]no normalized runs[/red] - run `normalize` first")
-        raise typer.Exit(1)
-
-    dois: dict[str, None] = {}
-    for f in files:
-        run = json.loads(f.read_text())
-        for p in run.get("papers") or []:
-            raw = p.get("doi")
-            if raw:
-                dois[raw] = None
-
-    ex = groundtruth.existence_client()
-    ab = groundtruth.abstract_client() if abstracts else None
-    records: list[SourceRecord] = []
-    interactive = sys.stdout.isatty()
-    for i, doi in enumerate(dois, 1):
-        if interactive:
-            console.print(f"[dim]{i}/{len(dois)}[/dim] {doi}", end="\r")
-        records.append(groundtruth.resolve(doi, ex, ab))
-
-    out = config.OUT_DIR / "sources.json"
-    out.write_text(json.dumps([r.model_dump() for r in records], indent=2))
-
-    resolved = [r for r in records if r.status == "resolved"]
-    both = [r for r in resolved if len(r.resolved_by) == 2]
-    one = [r for r in resolved if len(r.resolved_by) == 1]
-    console.print(f"total DOIs          {len(records)}")
-    console.print(f"resolved            {len(resolved)}  (both registries {len(both)}, one {len(one)})")
-    console.print(f"unresolved          {sum(1 for r in records if r.status == 'unresolved')}")
-    console.print(f"malformed           {sum(1 for r in records if r.status == 'malformed')}")
-    console.print(f"not peer reviewed   {sum(1 for r in records if r.is_peer_reviewed is False)}")
-    if abstracts:
-        console.print(f"abstracts obtained  {sum(1 for r in records if r.abstract)}")
-    console.print(f"-> {out}")
-    if one:
-        console.print(
-            "[yellow]note[/yellow] single-registry resolutions would be false "
-            "fabrication flags under one-source validation: "
-            + ", ".join(r.doi for r in one[:5])
-        )
-
-
 if __name__ == "__main__":
     app()
-
-
-@app.command()
-def stats() -> None:
-    """Corpus report: what was collected, what was dropped and why."""
-    import collections
-
-    files = sorted(config.RUNS_DIR.glob("*.json"))
-    if not files:
-        console.print("[red]no normalized runs[/red] - run `normalize` first")
-        raise typer.Exit(1)
-    runs = [json.loads(f.read_text()) for f in files]
-    usable = [r for r in runs if r["completeness"]["usable"]]
-    dropped = [r for r in runs if not r["completeness"]["usable"]]
-
-    console.print(f"[bold]threads collected[/bold]  {len(runs)}")
-    console.print(f"[bold]usable runs[/bold]        {len(usable)}")
-
-    # A thread that never called write_report is not a report-writing run. That
-    # is a corpus filter, not a product failure, and the two must not be pooled.
-    def attempted(r: dict) -> bool:
-        return any(t["tool"] == "write_report" for t in r["tool_calls"])
-
-    not_reports = [r for r in dropped if not attempted(r)]
-    broken = [r for r in dropped if attempted(r)]
-    console.print(f"[bold]not report runs[/bold]    {len(not_reports)}  (excluded, no write_report call)")
-    console.print(f"[bold]report runs dropped[/bold] {len(broken)}  (attempted a report, evidence chain incomplete)")
-
-    if broken:
-        t = Table("thread", "papers", "criteria", "report", "why")
-        for r in broken:
-            t.add_row(
-                r["thread_id"][:8],
-                str(len(r["papers"])),
-                str(sum(1 for c in r["criteria"] if c["derived"])),
-                f"{len(r['report_markdown'] or '')}c",
-                ", ".join(r["completeness"]["reasons"]),
-            )
-        console.print(t)
-
-    rows = sum(len(r["papers"]) for r in usable)
-    retrieved = sum(r["retrieval"]["total_papers"] or 0 for r in usable)
-    dois = {p["doi"] for r in usable for p in r["papers"] if p.get("doi")}
-    console.print("")
-    console.print(f"table rows          {rows}")
-    console.print(f"unique cited DOIs   {len(dois)}")
-    console.print(f"report characters   {sum(len(r['report_markdown'] or '') for r in usable):,}")
-    if retrieved:
-        console.print(
-            f"retrieval funnel    {retrieved} retrieved -> {rows} read "
-            f"([bold]{rows / retrieved:.1%}[/bold] of retrieved literature reached a report)"
-        )
-
-    crit = collections.Counter(sum(1 for c in r["criteria"] if c["derived"]) for r in usable)
-    console.print(f"derived criteria    {dict(sorted(crit.items()))}")
-    ft = collections.Counter(
-        c["used_full_text"] for r in usable for c in r["criteria"] if c["derived"]
-    )
-    console.print(f"use_full_text       {dict(ft)}")
 
 
 @app.command()
@@ -251,7 +109,7 @@ def verify(
     force: bool = typer.Option(False, help="Ignore cached stages and rerun"),
     stop_after: str = typer.Option(None, help="Stop early: 'extract' or 'claims'"),
 ) -> None:
-    """Full pipeline: thread id in, verification output out.
+    """Full pipeline: thread id in, scored verdicts out.
 
     Needs SCISPACE_COOKIE in the environment or in .env, and the `claude` CLI on PATH.
     """
@@ -264,43 +122,38 @@ def verify(
     if result.get("skipped"):
         console.print(f"[yellow]skipped[/yellow] {result['skipped']}")
         return
-    if "verdict_counts" not in result:
+    if "by_severity" not in result:
         console.print(json.dumps(result, indent=2))
         return
 
-    console.print(f"[bold]claims[/bold]   {result['claims']}")
-    console.print(f"[bold]verdicts[/bold] {result['verdicts']}")
-    console.print("")
-    t = Table("verdict", "n")
-    for k, n in (result["verdict_counts"] or {}).items():
-        t.add_row(str(k), str(n))
-    console.print(t)
-
-
-    LABELS = ("verified", "unfounded", "miscited", "overstated", "unverifiable")
-    t = Table("severity", *LABELS)
-    for sev in sorted(result["by_severity"]):
-        row = result["by_severity"][sev]
-        t.add_row(sev, *[str(row.get(k, 0)) for k in LABELS])
-    console.print(t)
-
-    if result["p0_p1_rate"] is not None:
-        console.print(
-            f"[bold]P0/P1 not verified[/bold] {result['p0_p1_failed']}/"
-            f"{result['p0_p1_total']} = [bold]{result['p0_p1_rate']:.1%}[/bold]"
-            "  [dim](unverifiable excluded)[/dim]"
+    console.print(
+        f"[bold]{result['claims']}[/bold] claims "
+        f"[dim]->[/dim] [bold]{result['distinct_assertions']}[/bold] distinct assertions\n"
+    )
+    t = Table("", "total", "verified", "blocking", "quality", "unverifiable")
+    for lvl in ("P0", "P1", "P2"):
+        r = result["by_severity"][lvl]
+        t.add_row(
+            lvl, str(r["total"]), str(r["verified"]),
+            f"[red]{r['blocking']}[/red]" if r["blocking"] else "[green]0[/green]",
+            str(r["quality"]), str(r["unverifiable"]),
         )
-    if result["unexpected_labels"]:
-        console.print(f"[red]unexpected labels[/red] {', '.join(result['unexpected_labels'])}")
+    o = result["overall"]
+    t.add_row(
+        "[bold]all[/bold]", f"[bold]{o['total']}[/bold]", f"[bold]{o['verified']}[/bold]",
+        f"[bold red]{o['blocking']}[/bold red]" if o["blocking"] else "[bold green]0[/bold green]",
+        f"[bold]{o['quality']}[/bold]", f"[bold]{o['unverifiable']}[/bold]",
+    )
+    console.print(t)
 
-    integ = result["integrity"]
-    for label, ids in (
-        ("quotes not found in evidence", integ["quotes_not_in_evidence"]),
-        ("supported but reason names a mismatch", integ["supported_but_reason_names_mismatch"]),
-    ):
+    gate = result["gate"]
+    colour = "red" if gate == "BLOCK" else "green"
+    detail = ", ".join(result["by_severity"]["P0"]["blocking_ids"]) or "no P0 unfounded or miscited claims"
+    console.print(f"\n[bold {colour}]GATE {gate}[/bold {colour}]  [dim]{detail}[/dim]")
+
+    for label, ids in result["integrity"].items():
         if ids:
-            console.print(f"[red]integrity[/red] {label}: {', '.join(ids[:12])}")
-    if result["missing_verdicts"]:
-        console.print(f"[red]missing verdicts[/red] {', '.join(result['missing_verdicts'][:12])}")
+            tone = "yellow" if label == "downgraded_no_abstract" else "red"
+            console.print(f"[{tone}]{label}[/{tone}] {', '.join(ids[:10])}")
 
-    console.print(f"\n-> {config.DATA_DIR / 'pipeline' / thread_id}")
+    console.print(f"\n[dim]{config.PIPELINE_DIR / thread_id}[/dim]")

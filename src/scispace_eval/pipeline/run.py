@@ -24,12 +24,13 @@ from .. import config
 from ..collect import threads
 from ..http import Client
 from . import agent, render, report
+from .score import score
 
 log = logging.getLogger(__name__)
 
 
 def _workdir(thread_id: str) -> Path:
-    d = config.DATA_DIR / "pipeline" / thread_id
+    d = config.PIPELINE_DIR / thread_id
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -136,68 +137,11 @@ def run_verifier(
 
 
 def summarise(thread_id: str, claims: list[dict], verdicts: list[dict]) -> dict:
-    import collections
-
-    by_id = {c["id"]: c for c in claims}
-    v = {x["id"]: x for x in verdicts}
-    missing = sorted(set(by_id) - set(v))
-    extra = sorted(set(v) - set(by_id))
-
-    # Integrity checks. A quote that is not a literal substring of the evidence
-    # means the verifier invented its justification, and a `supported` verdict
-    # whose reason names a mismatch is the failure that produced the last run's
-    # false negatives -- both are checked mechanically rather than trusted.
     d = _workdir(thread_id)
-    pack = (d / "prompt_verifier.md").read_text() if (d / "prompt_verifier.md").exists() else ""
-    bad_quotes = [
-        x["id"] for x in verdicts
-        if x.get("quote") and pack and x["quote"] not in pack
-    ]
-    MISMATCH = ("recurrence", "prognosis", "survival", "different", "mismatch",
-                "not detection", "response to", "staging")
-    inconsistent = [
-        x["id"] for x in verdicts
-        if x.get("verdict") == "verified"
-        and any(t in (x.get("reason") or "").lower() for t in MISMATCH)
-    ]
-
-    def count(field: str, source: dict) -> dict:
-        return dict(collections.Counter(source[i].get(field) for i in source))
-
-    sev = {}
-    for i, x in v.items():
-        s = by_id.get(i, {}).get("severity", "?")
-        sev.setdefault(s, collections.Counter())[x.get("verdict")] += 1
-
-    LABELS = ("verified", "unfounded", "miscited", "overstated", "unverifiable")
-    # `unverifiable` is an evidence-access limit on our side, not a defect in the
-    # report, so it never counts toward the failure rate.
-    failed = [i for i, x in v.items() if x.get("verdict") in ("unfounded", "miscited", "overstated")]
-    critical = [i for i in failed if by_id.get(i, {}).get("severity") in ("P0", "P1")]
-    critical_total = sum(1 for c in claims if c.get("severity") in ("P0", "P1"))
-
-    summary = {
-        "thread_id": thread_id,
-        "claims": len(claims),
-        "verdicts": len(verdicts),
-        "missing_verdicts": missing,
-        "unexpected_verdicts": extra,
-        "verdict_counts": {k: count("verdict", v).get(k, 0) for k in LABELS},
-        "unexpected_labels": sorted(
-            {str(x.get("verdict")) for x in verdicts} - set(LABELS)
-        ),
-        "by_severity": {k: dict(c) for k, c in sev.items()},
-        "failed": sorted(failed, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0),
-        "p0_p1_failed": len(critical),
-        "p0_p1_total": critical_total,
-        "p0_p1_rate": round(len(critical) / critical_total, 4) if critical_total else None,
-        "integrity": {
-            "quotes_not_in_evidence": bad_quotes,
-            "supported_but_reason_names_mismatch": inconsistent,
-        },
-    }
-    (_workdir(thread_id) / "summary.json").write_text(json.dumps(summary, indent=2))
-    return summary
+    pack = (d / "prompt_verifier.md").read_text()
+    result = score(thread_id, claims, verdicts, pack).as_dict()
+    (d / "summary.json").write_text(json.dumps(result, indent=2))
+    return result
 
 
 def pipeline(

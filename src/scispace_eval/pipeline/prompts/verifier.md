@@ -65,7 +65,7 @@ Work through all six. Do them in this order — the first two catch the most.
 Every claim gets exactly one of five labels.
 
 - **`verified`** — a source backs the claim. You can quote it, the value matches, and the source measured the same thing the claim describes.
-- **`unfounded`** — the claim appears nowhere in the evidence. Nothing states it, and nothing close to it exists. This is fabrication.
+- **`unfounded`** — the claim as stated appears nowhere in the evidence. This is fabrication, and it includes one case that is easy to miss: **a figure assembled from parts of different sources.** If the report states a range, and two separate sources supply its endpoints, that range is `unfounded` — no source states it. The same applies to a set of metrics quoted as one result when each comes from a different study. Every component checking out individually does not make the combination real, and this is the most dangerous shape of all because piecewise verification passes it.
 - **`miscited`** — the value or finding is real and correctly copied, but the source measured something else: a different outcome, population, condition, task, or variant of the system. **Expect this to be the most common failure.** A figure can match to the last digit and still be miscited, and that is the failure this evaluation exists to catch.
 - **`overstated`** — the evidence points the same way but supports less than the claim says. A single result stated as general, a hedged source presented as settled, a quantifier the underlying results do not bear out.
 - **`unverifiable`** — nothing in the evidence speaks to the claim, and nothing contradicts it. Common where a figure would live in a source's detailed results rather than its summary. **This is not a failure by the report. Never count it as one.**
@@ -76,6 +76,27 @@ Choosing between them:
 - Number right, subject wrong → `miscited`. Not `verified` with a caveat.
 - Everything right but the claim reaches further than the evidence → `overstated`.
 - You could not find evidence either way → `unverifiable`, never `unfounded`. Absence of evidence in this pack is not evidence of fabrication.
+
+### The line between `unverifiable` and a failure
+
+This is the distinction most easily got wrong, and getting it wrong inflates the failure rate.
+
+**If your reason for rejecting a claim is that you could not confirm something, the verdict is `unverifiable`.** Not `overstated`, not `miscited`. Specifically:
+
+- The source has no abstract and you relied on an extracted data cell you could not corroborate → `unverifiable`.
+- You could not establish what the source measured → `unverifiable`.
+- The figure probably lives in the source's detailed results, which you cannot see → `unverifiable`.
+
+**A failure verdict requires positive evidence of the failure**, which you must be able to state:
+
+- `miscited` → you know what the source measured, and it differs from the claim. Name both.
+- `unfounded` → includes a figure the report assembled from separate sources; say which sources supplied which part.
+- `overstated` → you know what the evidence supports, and the claim reaches past it. Name the gap.
+- `unfounded` → you searched and can say what you searched for.
+
+Phrases like "cannot be confirmed", "could not be established" or "no abstract available" belong only in an `unverifiable` verdict. If one appears in your reason for a `miscited` or `overstated` verdict, the verdict is wrong — change it to `unverifiable`.
+
+An inability to check is our limitation, not the report's error.
 
 The last one matters: `unfounded` is a strong accusation. Reserve it for claims where you searched and can say what you searched for. If you cannot bound the search, the answer is `unverifiable`.
 
@@ -102,7 +123,9 @@ For each claim:
 - **`id`** — the claim id.
 - **`verdict`** — `verified`, `unfounded`, `miscited`, `overstated`, or `unverifiable`.
 - **`evidence_ids`** — the source ids you relied on.
-- **`quote`** — the exact text from the evidence you relied on, copied character for character. Mandatory. If you cannot quote it, you cannot claim it.
+- **`quote`** — the exact text from the evidence you relied on, **copied character for character**. Mandatory.
+
+  This is checked mechanically against the evidence. A summary, a paraphrase, a reformatted bullet, or a sentence you composed around a figure you found will fail that check and void the verdict, even if your conclusion was right. Copy a contiguous span of real text. If no single span establishes the claim, quote the closest one and say so in `reason` — do not stitch a sentence together.
 - **`quote_field`** — `abstract` or `data_cell`. **A data cell is a summary produced by an automated extraction step and may have dropped the very context this check depends on. Whenever you rely on one, confirm the subject and configuration against the source's own abstract before recording `verified`.**
 - **`source_measured`** — what the source actually measured, in your words: outcome, population, task, and which system variant or condition. This is the field the whole evaluation turns on. Fill it for every claim carrying a figure or result.
 - **`claim_presents_as`** — what the claim presents that figure or result as. Where this differs from `source_measured`, the verdict is `miscited`.
@@ -132,6 +155,8 @@ Write a markdown file containing:
 - [ ] Every absence-based verdict has a `search_note` that bounds the negative.
 - [ ] Aggregates and maxima were not accepted as single-system results.
 - [ ] `unfounded` was used only where the search is stated; otherwise `unverifiable`.
+- [ ] No `miscited` or `overstated` verdict rests on an inability to confirm; those are `unverifiable`.
+- [ ] Every `quote` was copied from the evidence character for character. A paraphrase is not a quote, and a verdict whose quote cannot be found in the evidence is void.
 
 Report the counts for each of the five labels, how many `P0` and `P1` claims are not `verified`, the ids of every `P0` claim that is not `verified`, and any suspect sources you identified.
 

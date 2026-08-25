@@ -12,11 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(REPO_ROOT / ".env", override=False)
 
 DATA_DIR = Path(os.getenv("SCISPACE_EVAL_DATA_DIR", REPO_ROOT / "data"))
-RAW_DIR = DATA_DIR / "raw"
-RUNS_DIR = DATA_DIR / "runs"
-CACHE_DIR = DATA_DIR / "cache"
-LABELS_DIR = DATA_DIR / "labels"
-OUT_DIR = DATA_DIR / "out"
+RAW_DIR = DATA_DIR / "raw"          # thread listings and one-off fetches
+PIPELINE_DIR = DATA_DIR / "pipeline"  # one directory per scored run
 
 ORIGIN = "https://scispace.com"
 # Two distinct API surfaces. The SciSpace wrapper owns thread listing and
@@ -65,5 +62,5 @@ def s2_api_key() -> str | None:
 
 
 def ensure_dirs() -> None:
-    for d in (RAW_DIR, RUNS_DIR, CACHE_DIR, LABELS_DIR, OUT_DIR):
+    for d in (RAW_DIR, PIPELINE_DIR):
         d.mkdir(parents=True, exist_ok=True)

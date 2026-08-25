@@ -92,26 +92,33 @@ For each claim:
 - **`verbatim`** — the exact text from the report the claim came from, copied character for character. Never paraphrase. Where one sentence yields several claims, all of them share the same `verbatim`.
 - **`section`** — the heading it falls under, exactly as written in the report.
 - **`type`** — `numeric`, `finding`, or `synthesis`. Choose by what the claim's substance is: a specific figure → `numeric`; a qualitative result from identifiable studies → `finding`; an aggregate, generalisation or superlative over multiple sources → `synthesis`.
-- **`severity`** — `P0` to `P3`, by how much damage the claim does if it turns out to be false. Judge the damage, not the topic: a wrong figure buried in background detail is low severity even if the number is dramatic.
+- **`severity`** — `P0`, `P1`, or `P2`, by what breaks if the claim turns out to be false.
 
-  - **`P0`** — the report's conclusion collapses. A reader acting on this makes the wrong decision. Typically the central thesis, a headline ranking, or a figure a recommendation rests on directly.
-  - **`P1`** — a section's conclusion collapses, but the report's overall argument survives. A reader carries away a wrong belief about one option, comparison or sub-area.
-  - **`P2`** — a specific fact is wrong and a careful reader would be misled on that point, but no conclusion depends on it. Wrong illustrative figures, mischaracterised individual studies.
-  - **`P3`** — cosmetic. Wrong and worth fixing, but nobody's understanding or decision changes. Background context, incidental detail.
+  Judge the consequence, not the topic. A dramatic-looking figure that nothing rests on is low severity. A plain sentence the entire report is built on is high severity.
 
-  Two rules when judging:
+  - **`P0` — critical.** If this is false, a reader who acts on the report acts wrongly. Ask: *would someone change a decision because of this sentence?* In practice this means the report's headline findings, any figure quoted in an executive summary or key-findings list, any claim inside a recommendation, and the central thesis the report exists to argue.
+  - **`P1` — sub-critical.** If this is false, a reader ends up with a wrong belief about one sub-area, but the report's overall conclusion still stands. Section-level conclusions, comparisons between two specific options, figures used to characterise one approach among several.
+  - **`P2` — non-critical.** If this is false, nothing a reader concludes changes. Background context, incidental detail, illustrative examples, and figures included for colour rather than to support a point.
 
-  **Weight by what depends on it, not by how striking it is.** A precise-looking figure that nothing rests on is `P2` or `P3`. A vague generalisation the whole report is built on is `P0`.
+  Two rules:
 
-  **When torn between two levels, choose the more severe.** Under-calling severity is the dangerous direction, because severity decides whether the report is fit to ship. A claim in a concluding or synthesising section is `P1` at minimum unless you can say specifically why nothing depends on it.
+  **Position is evidence, not proof.** A claim in a conclusion is usually `P0` or `P1`, but not automatically — a conclusion can restate incidental detail. Equally, a `P0` claim can appear in the middle of a body section if the report's argument rests on it.
+
+  **When torn between two levels, choose the more severe.** Under-calling is the dangerous direction, because these levels are used to decide whether the report is fit to publish.
+
+- **`restates`** — if this claim asserts the same thing as an earlier claim, the id of that earlier claim. Otherwise `null`.
+
+  Reports routinely state a headline figure in an introduction, again in the body, again in a synthesis section and again in a conclusion. Each instance is a real claim and must be recorded separately — but they are one assertion, and counting them as four makes a single error look like four errors.
+
+  Set `restates` when the underlying assertion is the same, even if the wording differs. Point at the first occurrence, not the immediately preceding one, so every instance of an assertion chains to one id. Same figure attached to a different subject is **not** a restatement: it is a separate claim.
 
 ## Output
 
 Write your result as a markdown file containing:
 
 1. **Header** — total claims.
-2. **Summary tables** — counts by `type`, by `severity`, and by section.
-3. **Per-section tables** — `id`, `claim`, `type`, `severity`.
+2. **Summary tables** — counts by `type`, by `severity`, and by section. Also: the number of distinct assertions, meaning claims with `restates: null`.
+3. **Per-section tables** — `id`, `claim`, `type`, `severity`, `restates`.
 4. **`## Full records`** — the complete JSON array, all fields, in a fenced ```json block.
 5. **`## Extraction notes`** — sentences you judged borderline and the reason you included or excluded each; every sentence you split into three or more claims, with the count; and any claim in a later section that restates an earlier one, flagged by both ids rather than merged.
 
@@ -126,8 +133,9 @@ Check each of these:
 - [ ] No framing, navigation or future-work sentence was recorded as a claim.
 - [ ] Every `verbatim` is a character-for-character quote from the report.
 - [ ] Every `claim` stands alone without its `verbatim` for context.
+- [ ] Every restated assertion points at the first occurrence via `restates`.
 
-Report the total, the breakdown by type and by severity, and the ids of every `P0` claim.
+Report the total, the number of distinct assertions, the breakdown by type and by severity, and the ids of every `P0` claim.
 
 ---
 
