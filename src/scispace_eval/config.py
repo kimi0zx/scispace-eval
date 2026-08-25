@@ -53,14 +53,6 @@ def credentials() -> Credentials:
     )
 
 
-def contact_email() -> str | None:
-    return (os.getenv("SCHOLARLY_CONTACT_EMAIL") or "").strip() or None
-
-
-def s2_api_key() -> str | None:
-    return (os.getenv("SEMANTIC_SCHOLAR_API_KEY") or "").strip() or None
-
-
 def ensure_dirs() -> None:
     for d in (RAW_DIR, PIPELINE_DIR):
         d.mkdir(parents=True, exist_ok=True)

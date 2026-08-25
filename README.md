@@ -11,11 +11,11 @@ cp .env.example .env      # fill in SCISPACE_COOKIE
 export PYTHONPATH=src
 ```
 
-The cookie comes from a logged-in browser: DevTools → Network → any
-`/api/scispace-agent/*` request → Copy as cURL → take the `Cookie` header.
+`SCISPACE_COOKIE` is the only credential. Get it from a logged-in browser: DevTools →
+Network → any `/api/scispace-agent/*` request → Copy as cURL → take the `Cookie` header.
 
-The two agents run through the Claude Code CLI, so if `claude` works in your shell,
-this works.
+Nothing else to configure. The two agents run through the Claude Code CLI, which uses its
+own auth, so if `claude` works in your shell this works.
 
 ## Run
 
