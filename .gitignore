@@ -7,8 +7,7 @@ venv/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
-data/raw/
-data/runs/
-data/cache/
-data/out/
 .DS_Store
+
+# run output: reports, abstracts and signed artefact URLs
+data/
