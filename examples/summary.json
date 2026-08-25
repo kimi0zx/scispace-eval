@@ -1,0 +1,96 @@
+{
+  "thread_id": "c220d59c-afbb-4492-bc6a-6257a0d1eb34",
+  "claims": 202,
+  "distinct_assertions": 156,
+  "gate": "PASS",
+  "by_severity": {
+    "P0": {
+      "total": 18,
+      "verified": 10,
+      "blocking": 0,
+      "quality": 5,
+      "unverifiable": 3,
+      "void": 0,
+      "judged": 15,
+      "blocking_rate": 0.0,
+      "failure_rate": 0.3333,
+      "blocking_ids": [],
+      "quality_ids": [
+        "c2",
+        "c9",
+        "c96",
+        "c133",
+        "c193"
+      ]
+    },
+    "P1": {
+      "total": 67,
+      "verified": 61,
+      "blocking": 0,
+      "quality": 2,
+      "unverifiable": 4,
+      "void": 0,
+      "judged": 63,
+      "blocking_rate": 0.0,
+      "failure_rate": 0.0317,
+      "blocking_ids": [],
+      "quality_ids": [
+        "c188",
+        "c107"
+      ]
+    },
+    "P2": {
+      "total": 71,
+      "verified": 62,
+      "blocking": 0,
+      "quality": 1,
+      "unverifiable": 8,
+      "void": 0,
+      "judged": 63,
+      "blocking_rate": 0.0,
+      "failure_rate": 0.0159,
+      "blocking_ids": [],
+      "quality_ids": [
+        "c189"
+      ]
+    }
+  },
+  "overall": {
+    "total": 156,
+    "verified": 133,
+    "blocking": 0,
+    "quality": 8,
+    "unverifiable": 15,
+    "void": 0,
+    "judged": 141,
+    "blocking_rate": 0.0,
+    "failure_rate": 0.0567,
+    "blocking_ids": [],
+    "quality_ids": [
+      "c2",
+      "c9",
+      "c188",
+      "c96",
+      "c107",
+      "c133",
+      "c189",
+      "c193"
+    ]
+  },
+  "verdict_counts_per_claim": {
+    "unverifiable": 20,
+    "overstated": 9,
+    "verified": 173
+  },
+  "integrity": {
+    "quote_not_in_evidence": [],
+    "unexpected_label": [],
+    "reason_contradicts_verdict": [],
+    "downgraded_unauditable_source": [
+      "c194",
+      "c3"
+    ],
+    "missing_verdict": [],
+    "verdict_without_claim": []
+  }
+}

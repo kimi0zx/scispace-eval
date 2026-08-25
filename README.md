@@ -59,6 +59,12 @@ the verifier actually saw. A partial run shows which stage it stopped at from th
 present, and output an agent wrote that cannot be parsed is renamed `.rejected` rather
 than cached, so a rerun retries instead of skipping it forever.
 
+### Example output
+
+`examples/summary.json` is a real scored run. `examples/records.md` shows three claims
+with the verdict each received, including one the scorer downgraded after the verifier
+had ruled on it.
+
 ## How it works
 
 Two agents. The **extractor** reads only the report and splits it into atomic
