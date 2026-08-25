@@ -16,7 +16,12 @@ CACHE_DIR = DATA_DIR / "cache"
 LABELS_DIR = DATA_DIR / "labels"
 OUT_DIR = DATA_DIR / "out"
 
-API_BASE = "https://scispace.com/api/scispace-agent"
+ORIGIN = "https://scispace.com"
+# Two distinct API surfaces. The SciSpace wrapper owns thread listing and
+# artefacts; the LangGraph runtime is reverse-proxied at /langgraph (not under
+# /api/) and owns the run state that carries the message and tool-call history.
+API_BASE = f"{ORIGIN}/api/scispace-agent"
+LANGGRAPH_BASE = f"{ORIGIN}/langgraph"
 
 
 class MissingCredentials(RuntimeError):

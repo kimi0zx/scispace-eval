@@ -49,6 +49,22 @@ DevTools > Network > any `/api/scispace-agent/*` request > Copy as cURL, and put
 the `Cookie` header value into `SCISPACE_COOKIE`. Unauthenticated calls return
 `401 user_not_in_request`.
 
+## Two API surfaces
+
+Confirmed with `probe`. They are separate services and the split is not obvious:
+
+| Data | Endpoint |
+|---|---|
+| Thread list | `GET /api/scispace-agent/threads` |
+| Artefacts | `GET /api/scispace-agent/threads/{id}/artifacts` |
+| Run state (messages, tool calls) | `GET /langgraph/threads/{id}/state` |
+
+Run state is the artefact that matters, and it is not under `/api/`. The agent
+runtime is LangGraph, reverse-proxied at `/langgraph` — the web bundle reads
+`NEXT_PUBLIC_LANGGRAPH_API_URL` and falls back to `${origin}/langgraph`.
+`/api/scispace-agent/threads/{id}/state` returns 404, which is why `probe`
+exists: guessing one surface from the other silently loses the message history.
+
 ## Use
 
 ```bash
@@ -58,7 +74,7 @@ export PYTHONPATH=src
 python -m scispace_eval probe <thread-id>
 
 # enumerate runs -> data/raw/threads_index.json
-python -m scispace_eval list
+python -m scispace_eval list --limit 200
 
 # pull raw state + artefacts for every listed thread -> data/raw/<thread>.json
 python -m scispace_eval fetch --from-index
@@ -68,6 +84,9 @@ python -m scispace_eval normalize
 
 # resolve cited DOIs against two registries, fetch abstracts -> data/out/sources.json
 python -m scispace_eval ground-truth
+
+# corpus report: what was collected, what was dropped and why
+python -m scispace_eval stats
 ```
 
 Raw responses are always written before parsing. The parser will change as the
@@ -97,6 +116,41 @@ and reported, never silently included with partial evidence.
 **Built-in table columns are not criteria.** `Relevance` and `Abstract` ship
 with every table. Only agent-derived columns represent the comparison the user
 asked for, so the criteria-fidelity eval must not credit the built-ins.
+
+## Corpus
+
+132 threads collected. **92 usable runs**: 2,589 table rows, 1,659 unique cited
+DOIs, 4.7M characters of generated report.
+
+Of the 40 excluded:
+
+- **31 never called `write_report`.** Not report-writing runs. A corpus filter,
+  not a product failure — the two must not be pooled.
+- **9 attempted a report but produced no usable evidence chain.** Five wrote
+  20-30k characters with no paper table at all. Four wrote 8-13k characters from
+  a table carrying only the built-in `Relevance` and `Abstract` columns, with
+  zero derived criteria.
+
+Those last four matter for the eval design. With no criteria columns there is no
+extraction hop — the report is written straight from abstracts, so the two-hop
+attribution model does not apply and the risk profile is different. Roughly 4%
+of report runs take that path, and they need their own verifier configuration
+rather than being scored on a table that does not exist.
+
+### The retrieval funnel
+
+**8,966 papers retrieved across 92 runs; 2,589 rows actually read into a report
+— 28.9%.** Nearly all runs read exactly 30 rows regardless of how much the
+consolidation step ranked. This is a fixed page size, not a relevance cut-off,
+and it is upstream of every hallucination metric: a grounded report over the
+wrong 29% of the literature is still the wrong report. It is the strongest
+argument for the retrieval-recall and completeness evals being ranked first.
+
+### Criteria width
+
+Derived criteria per run range from 1 to 16, with a mode of 3 (46 of 92 runs).
+328 of 401 derived criteria ran with `use_full_text: true`; the remaining 73 did
+not set the flag at all.
 
 ## Pilot run findings
 

@@ -19,8 +19,15 @@ from ..http import AuthExpired, Client
 log = logging.getLogger(__name__)
 
 THREADS_PATH = "/threads"
-STATE_PATHS = ("/threads/{tid}/state", "/threads/{tid}", "/threads/{tid}/history")
-ARTIFACT_PATHS = ("/threads/{tid}/artifacts", "/artifacts?thread_id={tid}")
+
+# Confirmed against the live API. The LangGraph base is discoverable from the
+# web bundle (NEXT_PUBLIC_LANGGRAPH_API_URL, defaulting to `${origin}/langgraph`)
+# and is a separate surface from /api/scispace-agent, which 404s on /state.
+STATE_URLS = (
+    config.LANGGRAPH_BASE + "/threads/{tid}/state",
+    config.LANGGRAPH_BASE + "/threads/{tid}",
+)
+ARTIFACT_URLS = (config.API_BASE + "/threads/{tid}/artifacts",)
 
 
 def client() -> Client:
@@ -69,9 +76,9 @@ def thread_id_of(item: dict[str, Any]) -> str | None:
     return None
 
 
-def _first_working(c: Client, paths: tuple[str, ...], tid: str) -> tuple[str, Any] | None:
-    for tmpl in paths:
-        url = config.API_BASE + tmpl.format(tid=tid)
+def _first_working(c: Client, urls: tuple[str, ...], tid: str) -> tuple[str, Any] | None:
+    for tmpl in urls:
+        url = tmpl.format(tid=tid)
         try:
             data = c.get_json(url, allow_404=True)
         except AuthExpired:
@@ -93,10 +100,10 @@ def fetch_raw(c: Client, tid: str, raw_dir: Path | None = None, force: bool = Fa
         return json.loads(out.read_text())
 
     bundle: dict[str, Any] = {"thread_id": tid}
-    got = _first_working(c, STATE_PATHS, tid)
+    got = _first_working(c, STATE_URLS, tid)
     if got:
         bundle["state_path"], bundle["state"] = got
-    got = _first_working(c, ARTIFACT_PATHS, tid)
+    got = _first_working(c, ARTIFACT_URLS, tid)
     if got:
         bundle["artifacts_path"], bundle["artifacts"] = got
 
@@ -106,8 +113,8 @@ def fetch_raw(c: Client, tid: str, raw_dir: Path | None = None, force: bool = Fa
 
 def probe(c: Client, tid: str) -> dict[str, str | None]:
     """Report which candidate endpoint paths actually work, for one known thread."""
-    state = _first_working(c, STATE_PATHS, tid)
-    arts = _first_working(c, ARTIFACT_PATHS, tid)
+    state = _first_working(c, STATE_URLS, tid)
+    arts = _first_working(c, ARTIFACT_URLS, tid)
     return {
         "threads": THREADS_PATH,
         "state": state[0] if state else None,

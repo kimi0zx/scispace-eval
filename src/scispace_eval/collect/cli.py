@@ -182,3 +182,62 @@ def ground_truth(
 
 if __name__ == "__main__":
     app()
+
+
+@app.command()
+def stats() -> None:
+    """Corpus report: what was collected, what was dropped and why."""
+    import collections
+
+    files = sorted(config.RUNS_DIR.glob("*.json"))
+    if not files:
+        console.print("[red]no normalized runs[/red] - run `normalize` first")
+        raise typer.Exit(1)
+    runs = [json.loads(f.read_text()) for f in files]
+    usable = [r for r in runs if r["completeness"]["usable"]]
+    dropped = [r for r in runs if not r["completeness"]["usable"]]
+
+    console.print(f"[bold]threads collected[/bold]  {len(runs)}")
+    console.print(f"[bold]usable runs[/bold]        {len(usable)}")
+
+    # A thread that never called write_report is not a report-writing run. That
+    # is a corpus filter, not a product failure, and the two must not be pooled.
+    def attempted(r: dict) -> bool:
+        return any(t["tool"] == "write_report" for t in r["tool_calls"])
+
+    not_reports = [r for r in dropped if not attempted(r)]
+    broken = [r for r in dropped if attempted(r)]
+    console.print(f"[bold]not report runs[/bold]    {len(not_reports)}  (excluded, no write_report call)")
+    console.print(f"[bold]report runs dropped[/bold] {len(broken)}  (attempted a report, evidence chain incomplete)")
+
+    if broken:
+        t = Table("thread", "papers", "criteria", "report", "why")
+        for r in broken:
+            t.add_row(
+                r["thread_id"][:8],
+                str(len(r["papers"])),
+                str(sum(1 for c in r["criteria"] if c["derived"])),
+                f"{len(r['report_markdown'] or '')}c",
+                ", ".join(r["completeness"]["reasons"]),
+            )
+        console.print(t)
+
+    rows = sum(len(r["papers"]) for r in usable)
+    retrieved = sum(r["retrieval"]["total_papers"] or 0 for r in usable)
+    dois = {p["doi"] for r in usable for p in r["papers"] if p.get("doi")}
+    console.print("")
+    console.print(f"table rows          {rows}")
+    console.print(f"unique cited DOIs   {len(dois)}")
+    console.print(f"report characters   {sum(len(r['report_markdown'] or '') for r in usable):,}")
+    if retrieved:
+        console.print(
+            f"retrieval funnel    {retrieved} retrieved -> {rows} read "
+            f"([bold]{rows / retrieved:.1%}[/bold] of retrieved literature reached a report)"
+        )
+
+    crit = collections.Counter(sum(1 for c in r["criteria"] if c["derived"]) for r in usable)
+    console.print(f"derived criteria    {dict(sorted(crit.items()))}")
+    ft = collections.Counter(
+        c["used_full_text"] for r in usable for c in r["criteria"] if c["derived"]
+    )
+    console.print(f"use_full_text       {dict(ft)}")
