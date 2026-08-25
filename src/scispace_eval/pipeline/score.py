@@ -71,7 +71,13 @@ class Score:
 
     @property
     def gate(self) -> str:
-        return "BLOCK" if self.overall.blocking else "PASS"
+        """Only a P0 blocking failure gates a release.
+
+        A blocking label below P0 is still a factual error and is reported, but by
+        definition nothing a reader acts on depends on it, so it does not hold a
+        release. Scoping this to P0 is the whole point of assigning severity.
+        """
+        return "BLOCK" if self.rows["P0"].blocking else "PASS"
 
     def as_dict(self) -> dict:
         def r(x: Row) -> dict:

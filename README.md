@@ -90,6 +90,17 @@ The gate blocks on **P0 `unfounded` or `miscited`**.
 `unverifiable` is our evidence limit, not a product defect, and never counts as a
 failure.
 
+## Tests
+
+```bash
+python -m pytest tests/ -q
+```
+
+Four cases, one per invariant that decides whether a rate can be trusted: a
+restatement chain keeps its failing instance, a paraphrased quote voids the verdict,
+a failure against a source with no text of its own is downgraded, and only a P0
+blocking label gates a release.
+
 ## Three rules in the scorer
 
 - **No receipt, no verdict.** Every verdict quotes the evidence character for character,
