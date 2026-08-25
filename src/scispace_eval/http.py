@@ -105,6 +105,3 @@ class Client:
         if path:
             path.write_text(json.dumps(data, indent=2))
         return data
-
-    def get_raw(self, url: str, params: dict[str, Any] | None = None) -> str:
-        return self._request("GET", url, params=params).text

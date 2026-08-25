@@ -217,21 +217,3 @@ def score(
         assertions=len(reps),
         claims=len(claims),
     )
-
-
-def load_and_score(run_dir: Path) -> Score:
-    """Score a completed pipeline run from its own output files."""
-    import re
-
-    def block(path: Path) -> list[dict]:
-        blocks = re.findall(r"```json\s*(\[.*?\])\s*```", path.read_text(), re.S)
-        if not blocks:
-            raise ValueError(f"{path}: no fenced json array")
-        return json.loads(max(blocks, key=len))
-
-    return score(
-        run_dir.name,
-        block(run_dir / "claims.md"),
-        block(run_dir / "verdicts.md"),
-        (run_dir / "prompt_verifier.md").read_text(),
-    )

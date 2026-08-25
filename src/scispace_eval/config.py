@@ -29,28 +29,20 @@ class MissingCredentials(RuntimeError):
 
 @dataclass(frozen=True)
 class Credentials:
-    cookie: str | None
-    bearer: str | None
+    cookie: str
 
     def headers(self) -> dict[str, str]:
-        if not self.cookie and not self.bearer:
-            raise MissingCredentials(
-                "No SciSpace credentials. Copy .env.example to .env and set "
-                "SCISPACE_COOKIE from a logged-in browser session."
-            )
-        headers: dict[str, str] = {}
-        if self.cookie:
-            headers["cookie"] = self.cookie
-        if self.bearer:
-            headers["authorization"] = f"Bearer {self.bearer}"
-        return headers
+        return {"cookie": self.cookie}
 
 
 def credentials() -> Credentials:
-    return Credentials(
-        cookie=(os.getenv("SCISPACE_COOKIE") or "").strip() or None,
-        bearer=(os.getenv("SCISPACE_AUTH_TOKEN") or "").strip() or None,
-    )
+    cookie = (os.getenv("SCISPACE_COOKIE") or "").strip()
+    if not cookie:
+        raise MissingCredentials(
+            "No SCISPACE_COOKIE. Copy .env.example to .env and paste the Cookie "
+            "header from a logged-in browser session."
+        )
+    return Credentials(cookie=cookie)
 
 
 def ensure_dirs() -> None:

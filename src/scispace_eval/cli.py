@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
-from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from . import config
-from .http import AuthExpired
 from .pipeline.run import pipeline
 
 app = typer.Typer(add_completion=False, help="Phase 0: evidence acquisition.")
